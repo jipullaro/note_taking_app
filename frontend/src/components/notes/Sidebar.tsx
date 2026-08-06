@@ -40,7 +40,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col justify-between py-10 pr-4 pl-10">
+    <aside className="flex min-h-screen w-64 shrink-0 flex-col justify-between py-10 pr-4 pl-10">
       <div>
         <Link
           href="/dashboard"
@@ -64,11 +64,11 @@ export function Sidebar() {
                   isActive && "font-bold"
                 )}
               >
-                <span className="flex items-center gap-2">
-                  <span className={cn("size-2.5 rounded-full", token.dotClass)} />
+                <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                  <span className={cn("size-2.5 shrink-0 rounded-full", token.dotClass)} />
                   {token.label}
                 </span>
-                <span className="text-ink/60">{counts ? counts[key] : ""}</span>
+                <span className="ml-auto shrink-0 text-ink/60">{counts ? counts[key] : ""}</span>
               </Link>
             );
           })}
