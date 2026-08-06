@@ -42,6 +42,10 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true, autoLogin: true });
 }
 
+// Django's serializers already return safe, curated, user-facing messages
+// (see accounts/serializers.py — RegisterSerializer's email field in
+// particular is worded to avoid confirming whether an email is already
+// registered), so it's fine to surface them as-is here.
 function firstErrorMessage(detail: Record<string, unknown>): string | undefined {
   const firstValue = Object.values(detail)[0];
   if (Array.isArray(firstValue)) return String(firstValue[0]);

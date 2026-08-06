@@ -14,6 +14,9 @@ export async function POST(request: NextRequest) {
   });
 
   if (!res.ok) {
+    // Django's EmailTokenObtainPairSerializer (accounts/serializers.py)
+    // already returns a deliberately generic message here, so it's safe
+    // to surface as-is rather than duplicating copy in the frontend too.
     const detail = await res.json().catch(() => ({}));
     return NextResponse.json(
       { error: detail.detail ?? "Invalid email or password." },

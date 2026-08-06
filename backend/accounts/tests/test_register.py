@@ -26,6 +26,9 @@ class RegisterTests(APITestCase):
             self.url, {"email": "dup@example.com", "password": "another-strong-pass"}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Must not confirm an account exists via DRF's default "user with
+        # this email already exists" wording — that's an enumeration vector.
+        self.assertNotIn("already exists", str(response.data))
 
     def test_register_rejects_weak_password(self):
         response = self.client.post(self.url, {"email": "weak@example.com", "password": "123"})
