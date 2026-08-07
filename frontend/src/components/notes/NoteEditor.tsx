@@ -4,12 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { colorForCategory } from "@/lib/categories";
+import { cn } from "@/lib/cn";
 import { formatLastEdited } from "@/lib/date";
 import { CategoryDropdown } from "./CategoryDropdown";
+import { NoteBody } from "./NoteBody";
 import { CloseIcon, TrashIcon } from "@/components/ui/icons";
 import type { Category, Note } from "@/types/note";
 
 const AUTOSAVE_DELAY_MS = 800;
+
+/** Shared by the body textarea and its rendered stand-in so they occupy the same box. */
+const BODY_BOX = "min-h-[50vh] flex-1 text-ink";
 
 /**
  * Shared editor for both creating and editing a note. The Figma mockup has
@@ -30,7 +35,11 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const [updatedAt, setUpdatedAt] = useState<string | undefined>(initialNote?.updated_at);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // The body renders as markdown until it's focused, and as a raw textarea
+  // while it's being typed into (a textarea can't style its own text).
+  const [editingBody, setEditingBody] = useState(false);
 
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
   const latestRef = useRef({ title, body, category });
@@ -38,6 +47,20 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   useEffect(() => {
     latestRef.current = { title, body, category };
   }, [title, body, category]);
+
+  // The textarea only exists once editingBody flips, so focus has to wait for
+  // it to mount. Nothing here touches autosave: the swap is presentational, and
+  // blur deliberately doesn't save — the running debounce still owns that, so a
+  // click away can't fire a second write on top of it.
+  useEffect(() => {
+    if (!editingBody) return;
+    const el = bodyRef.current;
+    if (!el) return;
+    el.focus();
+    // Programmatic focus parks the caret at offset 0; the end of the text is
+    // the less surprising place to resume typing.
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [editingBody]);
 
   // Load the user's categories so a brand-new note can default to one
   // (usually "Personal", seeded on registration) and the dropdown has
@@ -185,15 +208,43 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
           placeholder="Note Title"
           className="mb-3 bg-transparent font-serif text-2xl font-bold text-ink placeholder:text-ink/40 outline-none"
         />
-        <textarea
-          value={body}
-          onChange={(e) => {
-            setBody(e.target.value);
-            scheduleSave();
-          }}
-          placeholder="Pour your heart out…"
-          className="min-h-[50vh] flex-1 resize-none bg-transparent text-ink placeholder:text-ink/40 outline-none"
-        />
+        {/*
+          A <textarea> can't style its own contents, so the body swaps between
+          the raw textarea (while typing) and the rendered markdown (the rest of
+          the time). Both wear BODY_BOX so the swap doesn't shift the layout.
+        */}
+        {editingBody ? (
+          <textarea
+            ref={bodyRef}
+            value={body}
+            onChange={(e) => {
+              setBody(e.target.value);
+              scheduleSave();
+            }}
+            onBlur={() => setEditingBody(false)}
+            placeholder="Pour your heart out…"
+            className={cn(
+              BODY_BOX,
+              "resize-none bg-transparent placeholder:text-ink/40 outline-none"
+            )}
+          />
+        ) : (
+          <div
+            role="textbox"
+            aria-multiline="true"
+            aria-label="Note body"
+            tabIndex={0}
+            onClick={() => setEditingBody(true)}
+            onFocus={() => setEditingBody(true)}
+            className={cn(BODY_BOX, "cursor-text outline-none")}
+          >
+            {body ? (
+              <NoteBody body={body} />
+            ) : (
+              <span className="text-ink/40">Pour your heart out…</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
