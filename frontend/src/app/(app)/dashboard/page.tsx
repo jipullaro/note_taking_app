@@ -1,4 +1,4 @@
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, redirectIfUnauthenticated } from "@/lib/auth";
 import { serverApiFetch } from "@/lib/api";
 import { NoteGrid } from "@/components/notes/NoteGrid";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +14,13 @@ export default async function DashboardPage({
   const { category } = await searchParams;
 
   const query = category ? `?category=${encodeURIComponent(category)}` : "";
-  const notes = await serverApiFetch<Note[]>(`/notes/${query}`, token);
+  let notes: Note[];
+  try {
+    notes = await serverApiFetch<Note[]>(`/notes/${query}`, token);
+  } catch (err) {
+    await redirectIfUnauthenticated(err);
+    throw err;
+  }
 
   return (
     <>

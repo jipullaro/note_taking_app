@@ -2,6 +2,7 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { ApiError } from "./api";
 
 export const ACCESS_COOKIE = "access_token";
 export const REFRESH_COOKIE = "refresh_token";
@@ -78,4 +79,21 @@ export async function requireAuth(): Promise<string> {
     redirect("/login");
   }
   return token;
+}
+
+/**
+ * Server Components hold an access token whose cookie exists but may no
+ * longer be valid against the backend — e.g. the user was deleted, or (in
+ * dev) the database got reset out from under a still-cookied browser.
+ * requireAuth() only checks that the cookie is *present*; call this in the
+ * catch block of a serverApiFetch() to also handle it turning out to be
+ * *invalid*, redirecting to /login instead of letting a raw 401 bubble up
+ * as an unhandled server error. Returns normally (doesn't redirect) for
+ * any other error, so callers can still handle e.g. 404s themselves.
+ */
+export async function redirectIfUnauthenticated(err: unknown): Promise<void> {
+  if (err instanceof ApiError && err.status === 401) {
+    await clearAuthCookies();
+    redirect("/login");
+  }
 }
