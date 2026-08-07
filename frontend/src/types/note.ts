@@ -1,14 +1,23 @@
-export type CategoryKey = "personal" | "school" | "random_thoughts" | "drama";
+export interface Category {
+  id: number;
+  name: string;
+}
 
 export interface Note {
   id: number;
   title: string;
   body: string;
-  category: CategoryKey;
+  category: Category;
   created_at: string;
   updated_at: string;
 }
 
-export type NoteDraft = Partial<Pick<Note, "title" | "body" | "category">>;
+export interface CategoryCount extends Category {
+  count: number;
+}
 
-export type CategoryCounts = Record<CategoryKey, number> & { all: number };
+/** Shape of GET /api/notes/counts/ */
+export interface NoteCounts {
+  categories: CategoryCount[];
+  all: number;
+}

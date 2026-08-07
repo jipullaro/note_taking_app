@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { CATEGORIES } from "@/lib/categories";
+import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
 import { CategoryDropdown } from "./CategoryDropdown";
 import { CloseIcon, TrashIcon } from "@/components/ui/icons";
-import { cn } from "@/lib/cn";
-import type { CategoryKey, Note } from "@/types/note";
+import type { Category, Note } from "@/types/note";
 
 const AUTOSAVE_DELAY_MS = 800;
 
@@ -23,7 +22,11 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const [id, setId] = useState<number | null>(initialNote?.id ?? null);
   const [title, setTitle] = useState(initialNote?.title ?? "");
   const [body, setBody] = useState(initialNote?.body ?? "");
-  const [category, setCategory] = useState<CategoryKey>(initialNote?.category ?? "personal");
+  const [category, setCategory] = useState<Category | null>(initialNote?.category ?? null);
+  const [categories, setCategories] = useState<Category[]>(
+    initialNote ? [initialNote.category] : []
+  );
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<string | undefined>(initialNote?.updated_at);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -36,6 +39,21 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     latestRef.current = { title, body, category };
   }, [title, body, category]);
 
+  // Load the user's categories so a brand-new note can default to one
+  // (usually "Personal", seeded on registration) and the dropdown has
+  // something to offer.
+  useEffect(() => {
+    apiFetch<Category[]>("/categories/")
+      .then((data) => {
+        setCategories(data);
+        setCategory((current) => current ?? data[0] ?? null);
+      })
+      .catch(() => {
+        /* the editor still works with just the category it was loaded with */
+      })
+      .finally(() => setCategoriesLoaded(true));
+  }, []);
+
   const save = useCallback(async () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -43,7 +61,10 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     }
     if (!dirtyRef.current) return;
 
-    const payload = latestRef.current;
+    const { title, body, category } = latestRef.current;
+    if (!category) return; // nothing to save without a category yet
+
+    const payload = { title, body, category_id: category.id };
     setSaving(true);
     try {
       if (id === null) {
@@ -84,7 +105,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     router.refresh();
   }
 
-  async function handleCategoryChange(next: CategoryKey) {
+  async function handleCategoryChange(next: Category) {
     setCategory(next);
     latestRef.current = { ...latestRef.current, category: next };
     dirtyRef.current = true;
@@ -105,12 +126,26 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     }
   }
 
-  const token = CATEGORIES[category];
+  if (!category) {
+    if (!categoriesLoaded) return null; // brief flash while /categories/ loads
+
+    // Everyone is seeded with "Personal" on registration, but categories
+    // can be deleted once empty — so a user who deletes all of them hits
+    // this on their next new note, with nowhere to file it.
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-ink/70">
+        <p>You don&apos;t have any categories yet.</p>
+        <p>Add one from the sidebar, then come back to start a note.</p>
+      </div>
+    );
+  }
+
+  const color = colorForCategory(category);
 
   return (
     <div className="flex flex-1 flex-col">
       <div className="mb-3 flex items-center justify-between">
-        <CategoryDropdown value={category} onChange={handleCategoryChange} />
+        <CategoryDropdown value={category} categories={categories} onChange={handleCategoryChange} />
         <div className="flex items-center gap-4">
           {id !== null && (
             <button
@@ -135,11 +170,8 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
       </div>
 
       <div
-        className={cn(
-          "flex flex-1 flex-col rounded-2xl border-2 p-8",
-          token.fillClass,
-          token.borderClass
-        )}
+        className="flex flex-1 flex-col rounded-2xl border-2 p-8"
+        style={{ backgroundColor: color.fill, borderColor: color.border }}
       >
         <div className="mb-4 flex justify-end text-xs text-ink/70">
           {updatedAt ? `Last Edited: ${formatLastEdited(updatedAt)}` : saving ? "Saving…" : ""}

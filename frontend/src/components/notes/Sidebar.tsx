@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CATEGORIES, CATEGORY_ORDER } from "@/lib/categories";
+import { colorForCategory } from "@/lib/categories";
 import { apiFetch } from "@/lib/api";
-import type { CategoryCounts } from "@/types/note";
+import type { NoteCounts } from "@/types/note";
 import { LogoutIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/cn";
 
@@ -15,11 +15,11 @@ export function Sidebar() {
   const router = useRouter();
   const activeCategory = searchParams.get("category");
 
-  const [counts, setCounts] = useState<CategoryCounts | null>(null);
+  const [counts, setCounts] = useState<NoteCounts | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<CategoryCounts>("/notes/counts/")
+    apiFetch<NoteCounts>("/notes/counts/")
       .then((data) => {
         if (!cancelled) setCounts(data);
       })
@@ -52,23 +52,27 @@ export function Sidebar() {
           All Categories
         </Link>
         <nav className="flex flex-col gap-3.5">
-          {CATEGORY_ORDER.map((key) => {
-            const token = CATEGORIES[key];
-            const isActive = activeCategory === key;
+          {counts?.categories.map((category) => {
+            const color = colorForCategory(category);
+            const isActive = activeCategory === String(category.id);
+
             return (
               <Link
-                key={key}
-                href={`/dashboard?category=${key}`}
+                key={category.id}
+                href={`/dashboard?category=${category.id}`}
                 className={cn(
-                  "flex items-center justify-between gap-4 text-sm text-ink",
+                  "flex items-center justify-between gap-2 text-sm text-ink",
                   isActive && "font-bold"
                 )}
               >
-                <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-                  <span className={cn("size-2.5 shrink-0 rounded-full", token.dotClass)} />
-                  {token.label}
+                <span className="flex min-w-0 shrink items-center gap-2">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: color.border }}
+                  />
+                  <span className="truncate">{category.name}</span>
                 </span>
-                <span className="ml-auto shrink-0 text-ink/60">{counts ? counts[key] : ""}</span>
+                <span className="shrink-0 text-ink/60">{category.count}</span>
               </Link>
             );
           })}

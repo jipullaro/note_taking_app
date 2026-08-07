@@ -3,31 +3,14 @@
 /*
  * Design tokens, pixel-sampled from the Figma exports in /assets.
  * Single source of truth for color/font tokens used across the app.
- * Category keys mirror the backend's Note.Category choices exactly
- * (see backend/notes/models.py) so the two never drift.
+ * Category colors aren't here: categories are user-created, so there's no
+ * fixed set to enumerate and their colors are generated per-category at
+ * runtime instead (see src/lib/categories.ts).
  */
 @theme inline {
   --color-cream: #faf1e3;
   --color-ink: #1f1b16;
   --color-accent: #957139;
-
-  --color-category-random-fill: #f5c7a4;
-  --color-category-random-border: #ef9c66;
-
-  --color-category-school-fill: #fbe7bb;
-  --color-category-school-border: #fcdc94;
-
-  --color-category-personal-fill: #b9cec5;
-  --color-category-personal-border: #78aba8;
-
-  /*
-   * Drama fill has no direct Figma sample (only the border swatch was
-   * exported). Derived by lightening the border ~37.5% toward the cream
-   * background: fill = border + 0.375 * (cream - border), per channel.
-   *   border #C8CFA0 (200,207,160) -> fill (219,220,192) = #DBDCC0
-   */
-  --color-category-drama-fill: #dbdcc0;
-  --color-category-drama-border: #c8cfa0;
 
   --font-sans: var(--font-inter);
   --font-serif: var(--font-inria-serif);

@@ -1,52 +1,34 @@
-import type { CategoryKey } from "@/types/note";
+import type { Category } from "@/types/note";
 
-interface CategoryToken {
-  key: CategoryKey;
-  label: string;
-  fillClass: string;
-  borderClass: string;
-  dotClass: string;
+export interface CategoryColor {
+  /** Card/badge background */
+  fill: string;
+  /** Card border, dot, and dropdown accents */
+  border: string;
+}
+
+function hashCategoryId(id: number): number {
+  // A cheap integer hash (Fowler/Noll/Vo-ish mix) so consecutive ids don't
+  // land on near-identical hues.
+  let hash = id * 2654435761;
+  hash ^= hash >>> 15;
+  return Math.abs(hash);
 }
 
 /**
- * Single source of truth for category presentation on the frontend.
- * Keys must mirror backend/notes/models.py Note.Category exactly.
- * Colors live only here — the backend never returns color data.
+ * Categories are user-owned and freely named/created (see
+ * backend/notes/models.py) — there's no fixed set of keys to hang colors
+ * off of, and no color field on the backend (colors are a frontend-only
+ * concern by design). So every category, including the ones seeded by
+ * default, gets a color procedurally generated from its id: a hue spread
+ * around the wheel, rendered at a pastel fill / deeper border lightness
+ * that matches the app's warm, muted palette. Keyed by id (not name) so a
+ * category's color stays stable even if it's renamed.
  */
-export const CATEGORIES: Record<CategoryKey, CategoryToken> = {
-  random_thoughts: {
-    key: "random_thoughts",
-    label: "Random Thoughts",
-    fillClass: "bg-category-random-fill",
-    borderClass: "border-category-random-border",
-    dotClass: "bg-category-random-border",
-  },
-  school: {
-    key: "school",
-    label: "School",
-    fillClass: "bg-category-school-fill",
-    borderClass: "border-category-school-border",
-    dotClass: "bg-category-school-border",
-  },
-  personal: {
-    key: "personal",
-    label: "Personal",
-    fillClass: "bg-category-personal-fill",
-    borderClass: "border-category-personal-border",
-    dotClass: "bg-category-personal-border",
-  },
-  drama: {
-    key: "drama",
-    label: "Drama",
-    fillClass: "bg-category-drama-fill",
-    borderClass: "border-category-drama-border",
-    dotClass: "bg-category-drama-border",
-  },
-};
-
-export const CATEGORY_ORDER: CategoryKey[] = [
-  "random_thoughts",
-  "school",
-  "personal",
-  "drama",
-];
+export function colorForCategory(category: Pick<Category, "id">): CategoryColor {
+  const hue = hashCategoryId(category.id) % 360;
+  return {
+    fill: `hsl(${hue} 55% 84%)`,
+    border: `hsl(${hue} 45% 62%)`,
+  };
+}
