@@ -10,6 +10,7 @@ staticfiles/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 frontend/.env.local
 
 # Env
