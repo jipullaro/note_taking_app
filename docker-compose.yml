@@ -11,6 +11,12 @@ x-backend: &backend
   volumes:
     - ./backend:/app
   env_file: .env
+  environment:
+    # The settings default is localhost, which is right for a process on the
+    # host but points at the container itself in here. Defaulting it to the
+    # service name means the stack works even against a .env written before
+    # this variable existed — .env still wins if it sets one.
+    CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
   depends_on:
     postgres:
       condition: service_healthy
