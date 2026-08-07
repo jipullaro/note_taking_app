@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Category(models.Model):
@@ -29,6 +30,24 @@ class Category(models.Model):
         return self.name
 
 
+class NoteQuerySet(models.QuerySet):
+    """Named filters for the archive lifecycle.
+
+    A note is "live" while `archived_at` is NULL, "archived" once it's set,
+    and purgeable once it's been archived longer than the retention window.
+    """
+
+    def active(self):
+        return self.filter(archived_at__isnull=True)
+
+    def archived(self):
+        return self.filter(archived_at__isnull=False)
+
+    def purgeable(self, before):
+        """Archived strictly before `before` — i.e. past the retention window."""
+        return self.filter(archived_at__isnull=False, archived_at__lt=before)
+
+
 class Note(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notes"
@@ -44,9 +63,42 @@ class Note(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="notes")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # NULL means live. Deleting a note through the API sets this instead of
+    # dropping the row (see NoteViewSet.perform_destroy); a Celery job purges
+    # rows past the retention window for good.
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    # The default manager stays UNFILTERED on purpose — it does not hide
+    # archived rows. Two things break if it does:
+    #   1. The purge job looks for archived notes; a manager that hides them
+    #      would make the job a no-op against its own targets.
+    #   2. `category.notes` would silently start meaning "live notes only",
+    #      while Django's cascade collector keeps using `_base_manager` and
+    #      so would still take archived notes down with a deleted category —
+    #      two different answers to "what notes does this category have".
+    # Filtering stays explicit and named at the call site: `.active()` /
+    # `.archived()`.
+    objects = NoteQuerySet.as_manager()
 
     class Meta:
         ordering = ["-updated_at"]
 
     def __str__(self):
         return self.title or f"Note #{self.pk}"
+
+    def archive(self):
+        """Move the note to the archive (a soft delete on a countdown)."""
+        self.archived_at = timezone.now()
+        # `update_fields` is load-bearing, not an optimization: it stops
+        # `updated_at`'s auto_now from firing. Archiving isn't an edit, so it
+        # must not bump "Last Edited" or reshuffle the `-updated_at` ordering
+        # a restore would otherwise land in. A refactor to a plain `.save()`
+        # would break both, silently.
+        self.save(update_fields=["archived_at"])
+
+    def restore(self):
+        """Bring an archived note back to the dashboard."""
+        self.archived_at = None
+        # Same reason as archive(): restoring isn't an edit either, so the
+        # note returns to the spot in the list it was archived from.
+        self.save(update_fields=["archived_at"])
