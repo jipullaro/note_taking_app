@@ -3,16 +3,21 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from notes.models import Note
+from notes.models import Category, Note
 
 User = get_user_model()
 
 
 class NoteOwnershipTests(APITestCase):
     def setUp(self):
-        self.owner = User.objects.create_user(email="owner@example.com", password="s0me-strong-pass")
-        self.intruder = User.objects.create_user(email="intruder@example.com", password="s0me-strong-pass")
-        self.note = Note.objects.create(owner=self.owner, title="Private", category="drama")
+        self.owner = User.objects.create_user(
+            email="owner@example.com", password="s0me-strong-pass"
+        )
+        self.intruder = User.objects.create_user(
+            email="intruder@example.com", password="s0me-strong-pass"
+        )
+        owner_category = Category.objects.get(owner=self.owner, name="Personal")
+        self.note = Note.objects.create(owner=self.owner, title="Private", category=owner_category)
         self.detail_url = reverse("note-detail", args=[self.note.id])
 
     def test_unauthenticated_requests_are_rejected(self):

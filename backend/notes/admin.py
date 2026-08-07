@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Note
+from .models import Category, Note
 
 
 @admin.register(Note)
@@ -8,3 +8,9 @@ class NoteAdmin(admin.ModelAdmin):
     list_display = ("title", "owner", "category", "created_at", "updated_at")
     list_filter = ("category",)
     search_fields = ("title", "body", "owner__email")
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "owner", "created_at")
+    search_fields = ("name", "owner__email")
