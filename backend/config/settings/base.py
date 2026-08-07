@@ -1,4 +1,5 @@
 """Base settings shared by all environments."""
+
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -89,9 +90,7 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": None,
 }
 
@@ -99,9 +98,7 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
         minutes=int(os.environ.get("SIMPLE_JWT_ACCESS_MINUTES", "30"))
     ),
-    "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=int(os.environ.get("SIMPLE_JWT_REFRESH_DAYS", "7"))
-    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.environ.get("SIMPLE_JWT_REFRESH_DAYS", "7"))),
     "ROTATE_REFRESH_TOKENS": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "id",
