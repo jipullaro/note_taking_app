@@ -54,3 +54,26 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   });
   return parseResponse<T>(res);
 }
+
+/**
+ * DRF error bodies come in two shapes: {"detail": "..."} for view-level
+ * rejections (e.g. blocked category delete) and {"field": ["msg"]} for
+ * serializer validation errors. Pulls a human-readable message out of
+ * either, falling back to `fallback` for anything else (network errors,
+ * unexpected shapes).
+ */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    try {
+      const body = JSON.parse(err.message);
+      if (typeof body.detail === "string") return body.detail;
+      const firstField = Object.values(body)[0];
+      if (Array.isArray(firstField) && typeof firstField[0] === "string") {
+        return firstField[0];
+      }
+    } catch {
+      /* body wasn't JSON — fall through to the generic message */
+    }
+  }
+  return fallback;
+}
