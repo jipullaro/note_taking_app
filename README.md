@@ -69,7 +69,7 @@ Linting and formatting run automatically on commit once you've run
 ## Backend tests
 
 ```bash
-make test                    # in Docker
+make test                    # in Docker, via pytest
 make -C backend test         # locally via uv + pytest
 ```
 
