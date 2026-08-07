@@ -46,7 +46,9 @@ Then open **http://localhost:3000**.
    category; click **All Categories** to clear the filter.
 8. Try deleting a category that has notes in it (trash icon) → refused with
    a message. Delete an empty one → it disappears.
-9. Open a note and click the trash icon → confirm → the note is deleted.
+9. Open a note and click the trash icon → confirm → the note leaves the
+   dashboard and moves to the archive (`GET /api/notes/?archived=true`);
+   `POST /api/notes/<id>/restore/` brings it back.
 10. Click **Log out** in the sidebar → you're redirected to `/login`; visiting
     `/dashboard` directly now redirects back to `/login`.
 
@@ -73,7 +75,7 @@ make test                    # in Docker
 make -C backend test         # locally via uv + pytest
 ```
 
-Both run the same 33 tests; the local one needs Postgres reachable on
+Both run the same suite; the local one needs Postgres reachable on
 `localhost:5432` (`make up` or `docker compose up -d postgres`).
 
 ## Notes on scope / design decisions
@@ -83,7 +85,24 @@ Both run the same 33 tests; the local one needs Postgres reachable on
   with notes pointing at one by FK. Every new user is seeded with a single
   "Personal" category, which is a starting point rather than a protected
   default: it can be renamed or deleted like any other. Deleting a category
-  that still holds notes is refused; move or delete them first.
+  that still holds *live* notes is refused; move or delete them first.
+  Archived notes don't block it — they're already on a countdown, so
+  blocking would strand the user behind a message about notes they can't
+  see, and it would make restoring into a since-deleted category possible.
+  They go down with the category via CASCADE.
+- **Deleting a note archives it** rather than dropping the row: `DELETE`
+  sets `Note.archived_at` and still replies `204`, so the frontend contract
+  is unchanged, but the note is recoverable via
+  `POST /api/notes/<id>/restore/`. `Note.archive()`/`restore()` save with
+  `update_fields=["archived_at"]` so `updated_at`'s `auto_now` doesn't fire
+  — archiving isn't an edit, and shouldn't bump "Last Edited".
+- **The `Note` default manager stays unfiltered** — it does *not* hide
+  archived rows. A filtering default manager would hide archived notes from
+  the purge job that exists to delete them, and would silently redefine
+  `category.notes` as "live notes only" while Django's cascade collector
+  (which uses `_base_manager`) kept disagreeing. Filtering is explicit and
+  named at the call site instead: `Note.objects.active()` / `.archived()` /
+  `.purgeable(before=...)`.
 - **Category colors are a frontend concern** — the backend stores and
   returns none. With no fixed key set to hang a palette off of,
   `colorForCategory()` (`frontend/src/lib/categories.ts`) derives a hue from
