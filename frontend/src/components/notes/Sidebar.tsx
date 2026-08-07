@@ -5,8 +5,16 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { colorForCategory } from "@/lib/categories";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
+import { useNotesChanged } from "@/lib/events";
 import type { NoteCounts } from "@/types/note";
-import { LogoutIcon, PencilIcon, PlusIcon, TrashIcon, CloseIcon } from "@/components/ui/icons";
+import {
+  ArchiveIcon,
+  LogoutIcon,
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+  CloseIcon,
+} from "@/components/ui/icons";
 import { cn } from "@/lib/cn";
 
 export function Sidebar() {
@@ -37,6 +45,10 @@ export function Sidebar() {
     // Re-fetch whenever we navigate back to the dashboard, e.g. after
     // creating/editing/deleting a note in the editor.
   }, [pathname]);
+
+  // Navigation isn't the only thing that changes the counts: restoring from
+  // /archive leaves the route alone, so the effect above never re-runs.
+  useNotesChanged(refresh);
 
   useEffect(() => {
     if (editingId !== null) editInputRef.current?.focus();
@@ -118,7 +130,12 @@ export function Sidebar() {
           href="/dashboard"
           className={cn(
             "mb-5 block text-sm font-bold text-ink",
-            !activeCategory && "underline decoration-accent underline-offset-4"
+            // The pathname check matters now that /archive exists: without it
+            // this reads as the selected item while you're viewing the
+            // archive, since no category is active there either.
+            pathname === "/dashboard" &&
+              !activeCategory &&
+              "underline decoration-accent underline-offset-4"
           )}
         >
           All Categories
@@ -229,14 +246,30 @@ export function Sidebar() {
         </nav>
       </div>
 
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="flex items-center gap-2 text-sm text-accent hover:underline cursor-pointer"
-      >
-        <LogoutIcon className="size-4" />
-        Log out
-      </button>
+      <div className="flex flex-col gap-3.5">
+        <Link
+          href="/archive"
+          className={cn(
+            "flex items-center gap-2 text-sm text-ink",
+            pathname === "/archive" && "font-bold"
+          )}
+        >
+          <ArchiveIcon className="size-4 shrink-0 text-ink/60" />
+          Archive
+          {counts?.archived ? (
+            <span className="ml-auto shrink-0 text-ink/60">{counts.archived}</span>
+          ) : null}
+        </Link>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex items-center gap-2 text-sm text-accent hover:underline cursor-pointer"
+        >
+          <LogoutIcon className="size-4" />
+          Log out
+        </button>
+      </div>
     </aside>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { emitNotesChanged } from "@/lib/events";
 import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
 import { CategoryDropdown } from "./CategoryDropdown";
@@ -114,11 +115,20 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
   async function handleDelete() {
     if (id === null) return;
-    if (!window.confirm("Delete this note? This can't be undone.")) return;
+    // Deleting archives now, so "this can't be undone" would be a lie — the
+    // note is recoverable from the archive until the purge takes it.
+    if (
+      !window.confirm(
+        "Move this note to the archive? It'll be deleted for good a day from now."
+      )
+    ) {
+      return;
+    }
 
     setDeleting(true);
     try {
       await apiFetch(`/notes/${id}/`, { method: "DELETE" });
+      emitNotesChanged();
       router.push("/dashboard");
       router.refresh();
     } finally {
@@ -152,7 +162,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
               type="button"
               onClick={handleDelete}
               disabled={deleting}
-              aria-label="Delete note"
+              aria-label="Archive note"
               className="cursor-pointer text-ink/60 hover:text-ink disabled:opacity-50"
             >
               <TrashIcon className="size-5" />

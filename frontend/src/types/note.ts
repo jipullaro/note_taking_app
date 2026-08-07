@@ -10,6 +10,8 @@ export interface Note {
   category: Category;
   created_at: string;
   updated_at: string;
+  /** When the note was archived; null for live notes. */
+  archived_at: string | null;
 }
 
 export interface CategoryCount extends Category {
@@ -20,4 +22,6 @@ export interface CategoryCount extends Category {
 export interface NoteCounts {
   categories: CategoryCount[];
   all: number;
+  /** Archived notes are a flat bucket, not broken down per category. */
+  archived: number;
 }
