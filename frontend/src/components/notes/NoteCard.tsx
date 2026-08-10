@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { colorForCategory } from "@/lib/categories";
 import { emitNotesChanged } from "@/lib/events";
+import { cn } from "@/lib/cn";
 import { TrashIcon } from "@/components/ui/icons";
 import { NoteCardBody } from "./NoteCardBody";
 import type { Note } from "@/types/note";
@@ -43,7 +44,7 @@ export function NoteCard({ note }: { note: Note }) {
 
   return (
     <div
-      className="flex flex-col rounded-2xl border-2 p-5 shadow-sm transition-shadow hover:shadow-md"
+      className="group flex flex-col rounded-2xl border-2 p-5 shadow-sm transition-shadow hover:shadow-md"
       style={{ backgroundColor: color.fill, borderColor: color.border }}
     >
       {/*
@@ -60,13 +61,29 @@ export function NoteCard({ note }: { note: Note }) {
           type="button"
           onClick={handleDelete}
           disabled={deleting}
-          // Every card carries one of these, so the visible "Delete" alone
-          // would give a screen reader a list of identical buttons.
+          aria-busy={deleting}
+          // Icon-only, so this is the button's whole accessible name. Naming
+          // the note matters on a grid: "Delete" alone would give a screen
+          // reader a list of identically-named buttons.
           aria-label={`Delete ${note.title || "untitled note"}`}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-ink/20 px-3 py-1.5 text-sm text-ink hover:bg-ink/5 disabled:opacity-50"
+          title="Delete"
+          className={cn(
+            "shrink-0 cursor-pointer rounded-lg p-1.5 text-ink/40 transition-opacity",
+            "hover:bg-ink/5 hover:text-ink",
+            // Revealed by pointing at the card — matching the sidebar's
+            // category row buttons. The extra conditions are what keep a
+            // hover-only control reachable by everyone else:
+            //   focus-within  — the card's link is focused, i.e. you tabbed here
+            //   focus-visible — the button itself is focused
+            //   hover: none   — a touch screen, where hover never happens
+            "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+            "focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+            // Held open while the request is in flight, or the button would
+            // fade out mid-click and leave nothing explaining the pause.
+            deleting && "opacity-100"
+          )}
         >
-          <TrashIcon className="size-3.5" />
-          {deleting ? "Deleting…" : "Delete"}
+          <TrashIcon className="size-4" />
         </button>
       </div>
     </div>

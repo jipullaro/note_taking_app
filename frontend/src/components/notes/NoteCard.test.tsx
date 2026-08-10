@@ -47,6 +47,27 @@ describe("NoteCard", () => {
     expect(screen.getByRole("button", { name: "Delete Live note" })).toBeEnabled();
   });
 
+  it("labels the icon-only button entirely through aria-label", () => {
+    render(<NoteCard note={note} />);
+
+    // Nothing visible spells "Delete" any more, so the aria-label is the only
+    // thing standing between a screen reader and an unnamed button.
+    const button = screen.getByRole("button", { name: "Delete Live note" });
+    expect(button).toHaveTextContent("");
+  });
+
+  it("stays in the tree when the card isn't hovered", () => {
+    render(<NoteCard note={note} />);
+
+    // Hidden with opacity, never `display: none` or conditional rendering:
+    // either of those would take the button out of the tab order and off the
+    // accessibility tree, stranding anyone not using a mouse.
+    const button = screen.getByRole("button", { name: "Delete Live note" });
+    button.focus();
+
+    expect(button).toHaveFocus();
+  });
+
   it("deletes the note and refreshes when confirmed", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<NoteCard note={note} />);
