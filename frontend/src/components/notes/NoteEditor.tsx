@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { emitNotesChanged } from "@/lib/events";
 import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
@@ -31,6 +31,10 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const [updatedAt, setUpdatedAt] = useState<string | undefined>(initialNote?.updated_at);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Only used by the no-categories-at-all form below; the dropdown keeps its
+  // own input state once there's at least one category to hang it off.
+  const [firstCategoryName, setFirstCategoryName] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
@@ -113,6 +117,31 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     await save();
   }
 
+  /**
+   * Creates a category without leaving the note. The list and the request
+   * live here rather than in CategoryDropdown so the dropdown stays a pure
+   * picker over `categories` (its documented contract). Rethrows so the
+   * caller's input can stay open on a rejected name.
+   */
+  async function handleCreateCategory(name: string): Promise<Category> {
+    try {
+      const created = await apiFetch<Category>("/categories/", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setCategories((prev) => [...prev, created]);
+      // Routes through handleCategoryChange (rather than setCategory) so the
+      // latestRef/dirtyRef sync happens and the note is saved under the new
+      // category — the effect that mirrors state into latestRef hasn't
+      // flushed by the time save() reads it.
+      await handleCategoryChange(created);
+      return created;
+    } catch (err) {
+      alert(apiErrorMessage(err, "Couldn't create that category."));
+      throw err;
+    }
+  }
+
   async function handleDelete() {
     if (id === null) return;
     // Deleting archives now, so "this can't be undone" would be a lie — the
@@ -141,11 +170,47 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
     // Everyone is seeded with "Personal" on registration, but categories
     // can be deleted once empty — so a user who deletes all of them hits
-    // this on their next new note, with nowhere to file it.
+    // this on their next new note, with nowhere to file it. Offer the
+    // create form here instead of sending them off to the sidebar: this is
+    // a dead end otherwise, and they'd lose whatever they came here to write.
+    async function handleCreateFirst(e: FormEvent) {
+      e.preventDefault();
+      const name = firstCategoryName.trim();
+      if (!name || creatingCategory) return;
+
+      setCreatingCategory(true);
+      try {
+        await handleCreateCategory(name);
+        setFirstCategoryName("");
+      } catch {
+        /* handleCreateCategory already reported it; keep the typed name */
+      } finally {
+        setCreatingCategory(false);
+      }
+    }
+
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-ink/70">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-sm text-ink/70">
         <p>You don&apos;t have any categories yet.</p>
-        <p>Add one from the sidebar, then come back to start a note.</p>
+        <p>Create one to start a note.</p>
+        <form onSubmit={handleCreateFirst} className="flex items-center gap-2">
+          <input
+            value={firstCategoryName}
+            onChange={(e) => setFirstCategoryName(e.target.value)}
+            disabled={creatingCategory}
+            placeholder="Category name"
+            aria-label="New category name"
+            autoFocus
+            className="min-w-0 rounded border border-accent/60 bg-cream px-2 py-1 text-sm text-ink outline-none disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={creatingCategory}
+            className="cursor-pointer rounded border border-accent px-3 py-1 text-sm text-accent hover:bg-ink/5 disabled:opacity-50"
+          >
+            Create
+          </button>
+        </form>
       </div>
     );
   }
@@ -155,7 +220,12 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   return (
     <div className="flex flex-1 flex-col">
       <div className="mb-3 flex items-center justify-between">
-        <CategoryDropdown value={category} categories={categories} onChange={handleCategoryChange} />
+        <CategoryDropdown
+          value={category}
+          categories={categories}
+          onChange={handleCategoryChange}
+          onCreate={handleCreateCategory}
+        />
         <div className="flex items-center gap-4">
           {id !== null && (
             <button

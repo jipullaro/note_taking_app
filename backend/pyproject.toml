@@ -18,6 +18,12 @@ dev = [
     "ruff>=0.8.4",
 ]
 
+# No [build-system] table: this is an application, not a distributable
+# package. Without package = false, `uv sync` would try to build and install
+# "backend" into the environment and fail.
+[tool.uv]
+package = false
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
 python_files = ["test_*.py"]
