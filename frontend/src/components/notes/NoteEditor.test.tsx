@@ -1,0 +1,129 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { apiFetch } from "@/lib/api";
+import { resetNavigation } from "@/test/next-navigation";
+import type { Category, Note } from "@/types/note";
+
+import { NoteEditor } from "./NoteEditor";
+
+vi.mock("next/navigation");
+vi.mock("@/lib/api", () => ({
+  apiFetch: vi.fn(),
+  apiErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
+}));
+
+const personal: Category = { id: 1, name: "Personal" };
+const work: Category = { id: 2, name: "Work" };
+
+const note: Note = {
+  id: 7,
+  title: "Groceries",
+  body: "milk",
+  category: personal,
+  created_at: "2026-08-01T10:00:00Z",
+  updated_at: "2026-08-01T10:00:00Z",
+};
+
+const mockApiFetch = vi.mocked(apiFetch);
+
+/** apiFetch is generic over its response, which no single fake can satisfy —
+ * route by path/method and cast once here rather than at every call site. */
+type ApiImpl = (path: string, init?: RequestInit) => Promise<unknown>;
+
+function stubWith(impl: ApiImpl) {
+  mockApiFetch.mockImplementation(impl as unknown as typeof apiFetch);
+}
+
+/** The happy path: the given categories exist, and creating one returns `created`. */
+function stubApi(categories: Category[], created: Category = work) {
+  stubWith((path, init = {}) => {
+    if (path === "/categories/" && !init.method) return Promise.resolve(categories);
+    if (path === "/categories/" && init.method === "POST") return Promise.resolve(created);
+    if (path === "/notes/" && init.method === "POST")
+      return Promise.resolve({ ...note, id: 9, category: created });
+    if (path.startsWith("/notes/") && init.method === "PATCH")
+      return Promise.resolve({ ...note, category: created });
+    return Promise.reject(new Error(`unexpected call: ${init.method ?? "GET"} ${path}`));
+  });
+}
+
+function bodyOf(call: [string, RequestInit?]) {
+  return JSON.parse(String(call[1]?.body));
+}
+
+describe("NoteEditor", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetNavigation();
+    vi.spyOn(window, "alert").mockImplementation(() => {});
+  });
+
+  it("creates a category from the dropdown and files the note under it", async () => {
+    stubApi([personal]);
+    const user = userEvent.setup();
+    render(<NoteEditor initialNote={note} />);
+
+    await user.click(await screen.findByRole("button", { name: /personal/i }));
+    await user.click(screen.getByRole("button", { name: /new category/i }));
+    await user.type(screen.getByLabelText("New category name"), "Work{Enter}");
+
+    const post = mockApiFetch.mock.calls.find(
+      ([path, init]) => path === "/categories/" && init?.method === "POST"
+    );
+    expect(post).toBeDefined();
+    expect(bodyOf(post!)).toEqual({ name: "Work" });
+
+    // The new category becomes the selected one...
+    expect(await screen.findByRole("button", { name: /work/i })).toBeInTheDocument();
+
+    // ...and the note is re-saved under it. This is the latestRef sync: state
+    // alone wouldn't have reached save(), which would have PATCHed the old id.
+    const patch = mockApiFetch.mock.calls.find(([path]) => path === `/notes/${note.id}/`);
+    expect(patch).toBeDefined();
+    expect(bodyOf(patch!)).toMatchObject({ category_id: work.id });
+  });
+
+  it("keeps the editor usable when the create fails", async () => {
+    stubWith((path, init = {}) => {
+      if (path === "/categories/" && !init.method) return Promise.resolve([personal]);
+      return Promise.reject(new Error("duplicate"));
+    });
+    const user = userEvent.setup();
+    render(<NoteEditor initialNote={note} />);
+
+    await user.click(await screen.findByRole("button", { name: /personal/i }));
+    await user.click(screen.getByRole("button", { name: /new category/i }));
+    await user.type(screen.getByLabelText("New category name"), "Personal{Enter}");
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalled());
+    expect(screen.getByLabelText("New category name")).toHaveValue("Personal");
+  });
+
+  it("offers an inline create form instead of a dead end when there are no categories", async () => {
+    stubApi([]);
+    render(<NoteEditor />);
+
+    expect(await screen.findByLabelText("New category name")).toBeInTheDocument();
+    expect(screen.queryByText(/from the sidebar/i)).not.toBeInTheDocument();
+  });
+
+  it("creates the first category from that form and opens the editor", async () => {
+    stubApi([]);
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+
+    await user.type(await screen.findByLabelText("New category name"), "Work");
+    await user.click(screen.getByRole("button", { name: /create/i }));
+
+    const post = mockApiFetch.mock.calls.find(
+      ([path, init]) => path === "/categories/" && init?.method === "POST"
+    );
+    expect(post).toBeDefined();
+    expect(bodyOf(post!)).toEqual({ name: "Work" });
+
+    expect(await screen.findByPlaceholderText("Note Title")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /work/i })).toBeInTheDocument();
+  });
+});
