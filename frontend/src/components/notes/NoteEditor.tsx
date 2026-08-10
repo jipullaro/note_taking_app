@@ -8,7 +8,7 @@ import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
 import { CategoryDropdown } from "./CategoryDropdown";
 import { NoteBodyEditor } from "./NoteBodyEditor";
-import { CloseIcon, TrashIcon } from "@/components/ui/icons";
+import { ArrowLeftIcon, TrashIcon } from "@/components/ui/icons";
 import type { Category, Note } from "@/types/note";
 
 const AUTOSAVE_DELAY_MS = 800;
@@ -220,34 +220,35 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center gap-4">
+        {/* Labelled rather than a bare "X": this is the only way out of the
+            editor, and an unlabelled icon in the far corner reads as decoration
+            — people couldn't find their way back to the dashboard. */}
+        <button
+          type="button"
+          onClick={handleClose}
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-accent/40 px-3 py-1.5 text-sm text-accent hover:bg-ink/5"
+        >
+          <ArrowLeftIcon className="size-4" />
+          All Notes
+        </button>
         <CategoryDropdown
           value={category}
           categories={categories}
           onChange={handleCategoryChange}
           onCreate={handleCreateCategory}
         />
-        <div className="flex items-center gap-4">
-          {id !== null && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              aria-label="Archive note"
-              className="cursor-pointer text-ink/60 hover:text-ink disabled:opacity-50"
-            >
-              <TrashIcon className="size-5" />
-            </button>
-          )}
+        {id !== null && (
           <button
             type="button"
-            onClick={handleClose}
-            aria-label="Close"
-            className="cursor-pointer text-ink/60 hover:text-ink"
+            onClick={handleDelete}
+            disabled={deleting}
+            aria-label="Archive note"
+            className="ml-auto cursor-pointer text-ink/60 hover:text-ink disabled:opacity-50"
           >
-            <CloseIcon className="size-5" />
+            <TrashIcon className="size-5" />
           </button>
-        </div>
+        )}
       </div>
 
       <div

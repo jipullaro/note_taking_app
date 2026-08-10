@@ -14,6 +14,7 @@ import {
   PlusIcon,
   TrashIcon,
   CloseIcon,
+  NotesIcon,
 } from "@/components/ui/icons";
 import { cn } from "@/lib/cn";
 
@@ -126,20 +127,26 @@ export function Sidebar() {
   return (
     <aside className="flex min-h-screen w-64 shrink-0 flex-col justify-between py-10 pr-4 pl-10">
       <div>
+        {/* Styled as a peer of the category rows and the Archive link below,
+            not as a bold heading over the list: as a heading it read like a
+            label for the categories rather than the "show everything" filter
+            it actually is. */}
         <Link
           href="/dashboard"
           className={cn(
-            "mb-5 block text-sm font-bold text-ink",
+            "mb-6 flex items-center gap-2 text-sm text-ink",
             // The pathname check matters now that /archive exists: without it
             // this reads as the selected item while you're viewing the
             // archive, since no category is active there either.
-            pathname === "/dashboard" &&
-              !activeCategory &&
-              "underline decoration-accent underline-offset-4"
+            pathname === "/dashboard" && !activeCategory && "font-bold"
           )}
         >
-          All Categories
+          <NotesIcon className="size-4 shrink-0 text-ink/60" />
+          All Notes
+          {counts ? <span className="ml-auto shrink-0 text-ink/60">{counts.all}</span> : null}
         </Link>
+
+        <p className="mb-3.5 text-xs font-bold tracking-wide text-ink/50 uppercase">Categories</p>
         <nav className="flex flex-col gap-3.5">
           {counts?.categories.map((category) => {
             const color = colorForCategory(category);
