@@ -66,3 +66,19 @@ export function PencilIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function ArchiveIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 5.5h12M2.5 5.5V13a1 1 0 001 1h9a1 1 0 001-1V5.5M2.5 5.5L4 2.5h8l1.5 3M6.5 8.5h3" />
+    </svg>
+  );
+}
+
+export function RestoreIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2.5 8a5.5 5.5 0 105.5-5.5A5.5 5.5 0 004 4.5M2.5 2v3h3" />
+    </svg>
+  );
+}
