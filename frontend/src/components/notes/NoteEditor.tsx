@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
+import { useAutosave } from "@/lib/autosave";
+import { clearDraft, readDraft, writeDraft } from "@/lib/drafts";
 import { emitNotesChanged } from "@/lib/events";
 import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
@@ -11,13 +13,27 @@ import { NoteBodyEditor } from "./NoteBodyEditor";
 import { CloseIcon, TrashIcon } from "@/components/ui/icons";
 import type { Category, Note } from "@/types/note";
 
-const AUTOSAVE_DELAY_MS = 800;
+/** Everything a save sends. Held in a ref as well as state — see `content`. */
+interface EditorContent {
+  title: string;
+  body: string;
+  category: Category | null;
+}
 
 /**
  * Shared editor for both creating and editing a note. The Figma mockup has
- * no explicit "Save" button — only a close "X" — so this autosaves
- * (debounced while typing, immediate on category change or close) rather
+ * no explicit "Save" button — only a close "X" — so this autosaves rather
  * than requiring an explicit save action.
+ *
+ * Two pieces do the work, and the split is worth knowing about:
+ *
+ *   - lib/autosave decides *when* to talk to the API — debounced while
+ *     typing, capped so a fast typist still saves, one request at a time,
+ *     retried with backoff, flushed when the page goes away.
+ *   - lib/drafts mirrors the content into localStorage on every change, so
+ *     whatever the API hasn't got yet is still recoverable.
+ *
+ * Between them there's no keystroke whose loss costs more than a reload.
  */
 export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const router = useRouter();
@@ -30,20 +46,84 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   );
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<string | undefined>(initialNote?.updated_at);
-  const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Only used by the no-categories-at-all form below; the dropdown keeps its
   // own input state once there's at least one category to hang it off.
   const [firstCategoryName, setFirstCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
 
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirtyRef = useRef(false);
-  const latestRef = useRef({ title, body, category });
+  // The id and the content are held in refs *as well as* state, and the refs
+  // are what a save reads. A save can finish and immediately start a
+  // follow-up for edits made while it was out, all before React has
+  // re-rendered — so a save that read the id from state would still see null
+  // just after creating the note, and POST a second one.
+  const idRef = useRef<number | null>(initialNote?.id ?? null);
+  const contentRef = useRef<EditorContent>({ title, body, category });
+  const restoredRef = useRef(false);
+  // Bumped to remount the body editor; see the restore effect below.
+  const [bodyRevision, setBodyRevision] = useState(0);
 
-  useEffect(() => {
-    latestRef.current = { title, body, category };
-  }, [title, body, category]);
+  const autosave = useAutosave(async ({ keepalive }) => {
+    const sent = contentRef.current;
+    if (!sent.category) return; // nothing to save without a category yet
+
+    const savedUnder = idRef.current;
+    const payload = { title: sent.title, body: sent.body, category_id: sent.category.id };
+
+    if (savedUnder === null) {
+      const created = await apiFetch<Note>("/notes/", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        keepalive,
+      });
+      idRef.current = created.id;
+      setId(created.id);
+      setUpdatedAt(created.updated_at);
+      emitNotesChanged();
+    } else {
+      const updated = await apiFetch<Note>(`/notes/${savedUnder}/`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+        keepalive,
+      });
+      setUpdatedAt(updated.updated_at);
+    }
+
+    // This content is on the server now, so the draft mirroring it can go.
+    clearDraft(savedUnder);
+    if (contentRef.current !== sent && contentRef.current.category) {
+      // Edits landed while the request was out. Re-file their draft under the
+      // id the note has now — otherwise a "new note" draft outlives the note
+      // it belonged to and gets restored into the *next* new note.
+      const { title, body, category } = contentRef.current;
+      writeDraft(idRef.current, { title, body, categoryId: category.id });
+    }
+  });
+
+  /**
+   * The single way content changes. Funnelling everything through here keeps
+   * the ref, the React state and the draft in step, which matters because
+   * `contentRef` is what a save reads: a handler that only called setState
+   * would save the *previous* content, since state hasn't landed yet by the
+   * time an immediate flush (a category change, closing the note) runs.
+   */
+  function update(patch: Partial<EditorContent>) {
+    const next = { ...contentRef.current, ...patch };
+    contentRef.current = next;
+
+    if (patch.title !== undefined) setTitle(patch.title);
+    if (patch.body !== undefined) setBody(patch.body);
+    if (patch.category !== undefined) setCategory(patch.category);
+
+    if (next.category) {
+      writeDraft(idRef.current, {
+        title: next.title,
+        body: next.body,
+        categoryId: next.category.id,
+      });
+    }
+    autosave.schedule();
+  }
 
   // Load the user's categories so a brand-new note can default to one
   // (usually "Personal", seeded on registration) and the dropdown has
@@ -52,7 +132,12 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     apiFetch<Category[]>("/categories/")
       .then((data) => {
         setCategories(data);
-        setCategory((current) => current ?? data[0] ?? null);
+        // Not via update(): defaulting the category isn't an edit, and
+        // scheduling a save here would create an empty note just for opening
+        // /notes/new.
+        const next = contentRef.current.category ?? data[0] ?? null;
+        contentRef.current = { ...contentRef.current, category: next };
+        setCategory(next);
       })
       .catch(() => {
         /* the editor still works with just the category it was loaded with */
@@ -60,62 +145,49 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
       .finally(() => setCategoriesLoaded(true));
   }, []);
 
-  const save = useCallback(async () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    if (!dirtyRef.current) return;
-
-    const { title, body, category } = latestRef.current;
-    if (!category) return; // nothing to save without a category yet
-
-    const payload = { title, body, category_id: category.id };
-    setSaving(true);
-    try {
-      if (id === null) {
-        const created = await apiFetch<Note>("/notes/", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        setId(created.id);
-        setUpdatedAt(created.updated_at);
-      } else {
-        const updated = await apiFetch<Note>(`/notes/${id}/`, {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        });
-        setUpdatedAt(updated.updated_at);
-      }
-      dirtyRef.current = false;
-    } finally {
-      setSaving(false);
-    }
-  }, [id]);
-
-  function scheduleSave() {
-    dirtyRef.current = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(save, AUTOSAVE_DELAY_MS);
-  }
-
+  // Restore an unsaved draft, if there is one. Runs once the categories are
+  // in, because a draft stores a category id and turning that back into the
+  // object the picker renders needs the list.
   useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+    if (!categoriesLoaded || restoredRef.current) return;
+    restoredRef.current = true;
+
+    const draft = readDraft(idRef.current);
+    if (draft === null) return;
+
+    const current = contentRef.current;
+    const draftCategory = categories.find((c) => c.id === draft.categoryId) ?? current.category;
+    if (draftCategory === null) return; // nothing to file it under; keep it for later
+
+    if (
+      draft.title === current.title &&
+      draft.body === current.body &&
+      draftCategory.id === current.category?.id
+    ) {
+      clearDraft(idRef.current); // matches the server — the save did land
+      return;
+    }
+
+    // A draft only outlives a save that didn't land, so what's here is
+    // unsaved work: restore it over the server's older copy and push it up.
+    update({ title: draft.title, body: draft.body, category: draftCategory });
+    // The body editor reads `value` only when it mounts — it owns the
+    // document after that — so restored markdown has to arrive as a remount.
+    setBodyRevision((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- guarded to run once
+  }, [categoriesLoaded, categories]);
 
   async function handleClose() {
-    await save();
+    // Never rejects, so a save that's failing can't strand the user in the
+    // editor; the draft keeps their work either way.
+    await autosave.flush();
     router.push("/dashboard");
     router.refresh();
   }
 
   async function handleCategoryChange(next: Category) {
-    setCategory(next);
-    latestRef.current = { ...latestRef.current, category: next };
-    dirtyRef.current = true;
-    await save();
+    update({ category: next });
+    await autosave.flush(); // a category change is a click, not a keystroke
   }
 
   /**
@@ -131,10 +203,6 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
         body: JSON.stringify({ name }),
       });
       setCategories((prev) => [...prev, created]);
-      // Routes through handleCategoryChange (rather than setCategory) so the
-      // latestRef/dirtyRef sync happens and the note is saved under the new
-      // category — the effect that mirrors state into latestRef hasn't
-      // flushed by the time save() reads it.
       await handleCategoryChange(created);
       return created;
     } catch (err) {
@@ -156,11 +224,18 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     }
 
     setDeleting(true);
+    // Drop anything pending first: archived notes 404 on every detail action
+    // but `restore`, so a PATCH landing after this would fail and then keep
+    // retrying against a note the user has already thrown away.
+    autosave.cancel();
     try {
       await apiFetch(`/notes/${id}/`, { method: "DELETE" });
+      clearDraft(id);
       emitNotesChanged();
       router.push("/dashboard");
       router.refresh();
+    } catch (err) {
+      alert(apiErrorMessage(err, "Couldn't archive that note."));
     } finally {
       setDeleting(false);
     }
@@ -218,6 +293,18 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
   const color = colorForCategory(category);
 
+  // Save state outranks the timestamp: "Last Edited" is about the copy on the
+  // server, and while a save is pending or failing that isn't what's on
+  // screen. Saying so is the whole substitute for a Save button.
+  const statusLabel =
+    autosave.status === "saving"
+      ? "Saving…"
+      : autosave.status === "error"
+        ? "Couldn't save — retrying…"
+        : updatedAt
+          ? `Last Edited: ${formatLastEdited(updatedAt)}`
+          : "";
+
   return (
     <div className="flex flex-1 flex-col">
       <div className="mb-3 flex items-center justify-between">
@@ -254,28 +341,29 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
         className="flex flex-1 flex-col rounded-2xl border-2 p-8"
         style={{ backgroundColor: color.fill, borderColor: color.border }}
       >
-        <div className="mb-4 flex justify-end text-xs text-ink/70">
-          {updatedAt ? `Last Edited: ${formatLastEdited(updatedAt)}` : saving ? "Saving…" : ""}
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mb-4 flex justify-end text-xs ${
+            autosave.status === "error" ? "text-accent" : "text-ink/70"
+          }`}
+        >
+          {statusLabel}
         </div>
         <input
           value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            scheduleSave();
-          }}
+          onChange={(e) => update({ title: e.target.value })}
           placeholder="Note Title"
           className="mb-3 bg-transparent font-serif text-2xl font-bold text-ink placeholder:text-ink/40 outline-none"
         />
         <NoteBodyEditor
           // Remount when the note changes: the editor owns its document once
-          // mounted, so a different note's body has to come in as a fresh mount
-          // rather than a prop update fighting the caret.
-          key={initialNote?.id ?? "new"}
+          // mounted, so a different note's body (or a restored draft) has to
+          // come in as a fresh mount rather than a prop update fighting the
+          // caret.
+          key={`${initialNote?.id ?? "new"}:${bodyRevision}`}
           value={body}
-          onChange={(markdown) => {
-            setBody(markdown);
-            scheduleSave();
-          }}
+          onChange={(markdown) => update({ body: markdown })}
           className="flex flex-1 flex-col text-ink"
         />
       </div>

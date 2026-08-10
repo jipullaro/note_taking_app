@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/api";
+import { readDraft, writeDraft } from "@/lib/drafts";
 import { resetNavigation, routerMock } from "@/test/next-navigation";
 import type { Category, Note } from "@/types/note";
 
@@ -80,8 +81,9 @@ describe("NoteEditor categories", () => {
     // The new category becomes the selected one...
     expect(await screen.findByRole("button", { name: /work/i })).toBeInTheDocument();
 
-    // ...and the note is re-saved under it. This is the latestRef sync: state
-    // alone wouldn't have reached save(), which would have PATCHed the old id.
+    // ...and the note is re-saved under it. This is the contentRef sync in
+    // update(): React state alone wouldn't have reached the save that the
+    // category change flushes, which would have sent the old category.
     const patch = mockApiFetch.mock.calls.find(([path]) => path === `/notes/${note.id}/`);
     expect(patch).toBeDefined();
     expect(bodyOf(patch!)).toMatchObject({ category_id: work.id });
@@ -244,5 +246,180 @@ describe("NoteEditor body", () => {
 
     const saves = mockApiFetch.mock.calls.filter(([path]) => path === "/notes/1/");
     expect(saves.length).toBeLessThan(5); // one per character would be 5
+  });
+});
+
+describe("NoteEditor saving", () => {
+  /** A response the test holds open, to keep a save in flight. */
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  const postsTo = (path: string) =>
+    mockApiFetch.mock.calls.filter(([p, init]) => p === path && init?.method === "POST");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetNavigation();
+  });
+
+  it("leaves the server alone when the editor is only opened", async () => {
+    stubApi([personal]);
+    render(<NoteEditor initialNote={note} />);
+    await screen.findByLabelText("Note body");
+
+    // Well past the debounce. Opening a note is not an edit — an autosave
+    // that fired here would bump "Last Edited" on every note you glance at.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      `/notes/${note.id}/`,
+      expect.objectContaining({ method: "PATCH" })
+    );
+  });
+
+  it("creates a new note once, even when a save is still in flight", async () => {
+    // The race this covers: the note has no id until the POST comes back, so
+    // a second save starting before then used to create a second note.
+    const created = deferred<Note>();
+    stubWith((path, init = {}) => {
+      if (path === "/categories/" && !init.method) return Promise.resolve([personal, work]);
+      if (path === "/notes/" && init.method === "POST") return created.promise;
+      if (path === "/notes/9/" && init.method === "PATCH")
+        return Promise.resolve({ ...note, id: 9, category: work });
+      return Promise.reject(new Error(`unexpected call: ${init.method ?? "GET"} ${path}`));
+    });
+
+    render(<NoteEditor />);
+    const title = await screen.findByPlaceholderText("Note Title");
+    await userEvent.type(title, "New");
+    await waitFor(() => expect(postsTo("/notes/")).toHaveLength(1), { timeout: 3000 });
+
+    // The POST is slow, so keep typing: the debounce comes round again while
+    // the note still has no id, which is when the second one used to go out.
+    await userEvent.type(title, " note");
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(postsTo("/notes/")).toHaveLength(1);
+
+    // Same for a category change, which asks for a save immediately.
+    await userEvent.click(screen.getByRole("button", { name: /personal/i }));
+    await userEvent.click(screen.getByRole("button", { name: /work/i }));
+    expect(postsTo("/notes/")).toHaveLength(1);
+
+    created.resolve({ ...note, id: 9, title: "New", category: personal });
+
+    // The queued change goes to the note that now exists, as an update.
+    await waitFor(
+      () =>
+        expect(mockApiFetch).toHaveBeenCalledWith(
+          "/notes/9/",
+          expect.objectContaining({ method: "PATCH" })
+        ),
+      { timeout: 3000 }
+    );
+    expect(postsTo("/notes/")).toHaveLength(1);
+  });
+
+  it("says when a save is failing instead of losing it quietly", async () => {
+    stubWith((path, init = {}) => {
+      if (path === "/categories/" && !init.method) return Promise.resolve([personal]);
+      return Promise.reject(new Error("offline"));
+    });
+
+    render(<NoteEditor initialNote={note} />);
+    await userEvent.type(await screen.findByPlaceholderText("Note Title"), "!");
+
+    expect(await screen.findByText(/couldn't save/i, undefined, { timeout: 3000 })).toBeVisible();
+    // ...and the content is still recoverable, which is what makes the
+    // failure survivable rather than just visible.
+    expect(readDraft(note.id)).toMatchObject({ title: `${note.title}!` });
+  });
+});
+
+describe("NoteEditor drafts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetNavigation();
+    stubApi([personal]);
+  });
+
+  it("keeps a local copy of what hasn't been saved yet", async () => {
+    render(<NoteEditor initialNote={note} />);
+    await userEvent.type(await screen.findByPlaceholderText("Note Title"), "!");
+
+    // Written on the keystroke, not on the save — that's the whole point.
+    expect(readDraft(note.id)).toMatchObject({ title: `${note.title}!` });
+  });
+
+  it("clears that copy once the content is on the server", async () => {
+    render(<NoteEditor initialNote={note} />);
+    await userEvent.type(await screen.findByPlaceholderText("Note Title"), "!");
+
+    await waitFor(() => expect(readDraft(note.id)).toBeNull(), { timeout: 3000 });
+  });
+
+  it("restores unsaved content instead of the server's older copy", async () => {
+    writeDraft(note.id, {
+      title: "Groceries for Friday",
+      body: "milk and eggs",
+      categoryId: personal.id,
+    });
+
+    render(<NoteEditor initialNote={note} />);
+
+    expect(await screen.findByDisplayValue("Groceries for Friday")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Note body")).toHaveTextContent("milk and eggs");
+  });
+
+  it("gets restored content back onto the server", async () => {
+    writeDraft(note.id, {
+      title: "Groceries for Friday",
+      body: "milk and eggs",
+      categoryId: personal.id,
+    });
+
+    render(<NoteEditor initialNote={note} />);
+
+    await waitFor(
+      () => {
+        const patch = mockApiFetch.mock.calls.find(([path]) => path === `/notes/${note.id}/`);
+        expect(patch).toBeDefined();
+        expect(bodyOf(patch!)).toMatchObject({
+          title: "Groceries for Friday",
+          body: "milk and eggs",
+        });
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("ignores a draft that matches what the server already has", async () => {
+    // Nothing to recover, so this must not look like an edit.
+    writeDraft(note.id, { title: note.title, body: note.body, categoryId: personal.id });
+
+    render(<NoteEditor initialNote={note} />);
+    await screen.findByLabelText("Note body");
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      `/notes/${note.id}/`,
+      expect.objectContaining({ method: "PATCH" })
+    );
+    expect(readDraft(note.id)).toBeNull();
+  });
+
+  it("drops the draft when the note is archived", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    writeDraft(note.id, { title: "unsent", body: "unsent", categoryId: personal.id });
+
+    render(<NoteEditor initialNote={note} />);
+    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+
+    await waitFor(() => expect(readDraft(note.id)).toBeNull());
+    confirmSpy.mockRestore();
   });
 });

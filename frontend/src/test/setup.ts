@@ -6,8 +6,42 @@ import { afterEach } from "vitest";
 // Testing Library only auto-cleans when a global `afterEach` exists at import
 // time, which isn't guaranteed here — do it explicitly so a component left
 // mounted by one test can't leak into the next one's queries.
+/*
+ * jsdom 30 no longer implements localStorage itself — it defers to Node's,
+ * which only exists when the process was started with --localstorage-file.
+ * So `window.localStorage` is undefined here, while in any real browser it is
+ * not. The note editor mirrors unsaved content into it (see lib/drafts), and
+ * that code treats a missing store as "no drafts available" rather than
+ * crashing — which would quietly make every draft test vacuous. An in-memory
+ * Storage keeps the tests honest about what browsers actually do.
+ */
+if (window.localStorage === undefined) {
+  const entries = new Map<string, string>();
+  const memoryStorage: Storage = {
+    get length() {
+      return entries.size;
+    },
+    key: (index) => [...entries.keys()][index] ?? null,
+    getItem: (key) => entries.get(key) ?? null,
+    setItem: (key, value) => void entries.set(key, String(value)),
+    removeItem: (key) => void entries.delete(key),
+    clear: () => entries.clear(),
+  };
+  Object.defineProperty(window, "localStorage", {
+    value: memoryStorage,
+    configurable: true,
+  });
+}
+
+// Testing Library only auto-cleans when a global `afterEach` exists at import
+// time, which isn't guaranteed here — do it explicitly so a component left
+// mounted by one test can't leak into the next one's queries.
 afterEach(() => {
   cleanup();
+  // Same isolation, for the store above: one store serves the whole run, so
+  // without this a note left unsaved by one test is restored into the next
+  // one's editor.
+  window.localStorage.clear();
 });
 
 /*
