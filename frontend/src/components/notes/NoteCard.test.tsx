@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "@/lib/api";
 import { NOTES_CHANGED_EVENT } from "@/lib/events";
 import { resetNavigation, routerMock } from "@/test/next-navigation";
+import { captureToasts } from "@/test/toasts";
 import type { Note } from "@/types/note";
 
 import { NoteCard } from "./NoteCard";
@@ -26,6 +27,8 @@ const note: Note = {
 };
 
 describe("NoteCard", () => {
+  const toasts = captureToasts();
+
   beforeEach(() => {
     resetNavigation();
     vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined);
@@ -113,13 +116,26 @@ describe("NoteCard", () => {
 
   it("reports a failed delete and re-enables the button", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     vi.mocked(apiFetch).mockRejectedValue(new Error("boom"));
 
     render(<NoteCard note={note} />);
     await userEvent.click(screen.getByRole("button", { name: /delete/i }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(toasts).toHaveLength(1));
+    expect(toasts[0].variant).toBe("error");
     expect(screen.getByRole("button", { name: /delete/i })).toBeEnabled();
+  });
+
+  it("confirms the archive on success, since the card disappears", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<NoteCard note={note} />);
+    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+
+    await waitFor(() => expect(toasts).toHaveLength(1));
+    expect(toasts[0]).toEqual({
+      message: expect.stringContaining("archive"),
+      variant: "success",
+    });
   });
 });

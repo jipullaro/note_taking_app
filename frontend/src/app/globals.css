@@ -22,6 +22,33 @@ body {
 }
 
 /*
+ * Toasts (src/components/ui/Toaster.tsx) rise from the bottom edge. Written
+ * here rather than as a Tailwind utility because it needs a keyframe and the
+ * reduced-motion opt-out below.
+ */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-item {
+  animation: toast-in 150ms ease-out;
+}
+
+/* Motion is the decoration here; the message is the point. Keep the fade. */
+@media (prefers-reduced-motion: reduce) {
+  .toast-item {
+    animation: none;
+  }
+}
+
+/*
  * Note body editor (Tiptap). Its content is contenteditable rather than React
  * children, so Tailwind utilities can't be put on the elements — the bullets
  * and emphasis a user types are created by ProseMirror at runtime. These rules

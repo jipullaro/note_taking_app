@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { colorForCategory } from "@/lib/categories";
 import { emitNotesChanged } from "@/lib/events";
+import { showToast, showErrorToast } from "@/lib/toast";
 import { RestoreIcon } from "@/components/ui/icons";
 import { NoteCardBody } from "./NoteCardBody";
 import type { Note } from "@/types/note";
@@ -28,8 +29,9 @@ export function ArchivedNoteCard({ note }: { note: Note }) {
       // reset, and restoring leaves us on /archive — so tell it directly.
       emitNotesChanged();
       router.refresh();
+      showToast("Note restored.");
     } catch (err) {
-      alert(apiErrorMessage(err, "Couldn't restore that note."));
+      showErrorToast(apiErrorMessage(err, "Couldn't restore that note."));
     } finally {
       setRestoring(false);
     }

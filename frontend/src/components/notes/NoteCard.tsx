@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { colorForCategory } from "@/lib/categories";
 import { emitNotesChanged } from "@/lib/events";
+import { showToast, showErrorToast } from "@/lib/toast";
 import { TrashIcon } from "@/components/ui/icons";
 import { NoteCardBody } from "./NoteCardBody";
 import type { Note } from "@/types/note";
@@ -34,8 +35,10 @@ export function NoteCard({ note }: { note: Note }) {
       // its client-state counts — tell it directly, as the archive does.
       emitNotesChanged();
       router.refresh();
+      // The card just vanished from under the cursor; say where it went.
+      showToast("Note moved to the archive.");
     } catch (err) {
-      alert(apiErrorMessage(err, "Couldn't delete that note."));
+      showErrorToast(apiErrorMessage(err, "Couldn't delete that note."));
     } finally {
       setDeleting(false);
     }

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/api";
 import { resetNavigation, routerMock } from "@/test/next-navigation";
+import { captureToasts } from "@/test/toasts";
 import type { Category, Note } from "@/types/note";
 
 import { NoteEditor } from "./NoteEditor";
@@ -56,10 +57,11 @@ function bodyOf(call: [string, RequestInit?]) {
 }
 
 describe("NoteEditor categories", () => {
+  const toasts = captureToasts();
+
   beforeEach(() => {
     vi.clearAllMocks();
     resetNavigation();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
   });
 
   it("creates a category from the dropdown and files the note under it", async () => {
@@ -99,7 +101,8 @@ describe("NoteEditor categories", () => {
     await user.click(screen.getByRole("button", { name: /new category/i }));
     await user.type(screen.getByLabelText("New category name"), "Personal{Enter}");
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalled());
+    await waitFor(() => expect(toasts).toHaveLength(1));
+    expect(toasts[0].variant).toBe("error");
     expect(screen.getByLabelText("New category name")).toHaveValue("Personal");
   });
 

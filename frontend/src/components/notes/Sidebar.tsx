@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { colorForCategory } from "@/lib/categories";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { useNotesChanged } from "@/lib/events";
+import { showErrorToast } from "@/lib/toast";
 import type { NoteCounts } from "@/types/note";
 import {
   ArchiveIcon,
@@ -82,7 +83,7 @@ export function Sidebar() {
       await apiFetch(`/categories/${id}/`, { method: "PATCH", body: JSON.stringify({ name }) });
       await refresh();
     } catch (err) {
-      alert(apiErrorMessage(err, "Couldn't rename that category."));
+      showErrorToast(apiErrorMessage(err, "Couldn't rename that category."));
     } finally {
       setBusy(false);
     }
@@ -97,7 +98,7 @@ export function Sidebar() {
       if (activeCategory === String(id)) router.push("/dashboard");
       await refresh();
     } catch (err) {
-      alert(apiErrorMessage(err, "Couldn't delete that category."));
+      showErrorToast(apiErrorMessage(err, "Couldn't delete that category."));
     } finally {
       setBusy(false);
     }
@@ -117,7 +118,7 @@ export function Sidebar() {
       setAdding(false);
       await refresh();
     } catch (err) {
-      alert(apiErrorMessage(err, "Couldn't create that category."));
+      showErrorToast(apiErrorMessage(err, "Couldn't create that category."));
     } finally {
       setBusy(false);
     }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { emitNotesChanged } from "@/lib/events";
+import { showErrorToast } from "@/lib/toast";
 import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
 import { CategoryDropdown } from "./CategoryDropdown";
@@ -138,7 +139,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
       await handleCategoryChange(created);
       return created;
     } catch (err) {
-      alert(apiErrorMessage(err, "Couldn't create that category."));
+      showErrorToast(apiErrorMessage(err, "Couldn't create that category."));
       throw err;
     }
   }
