@@ -107,6 +107,34 @@ describe("renderMarkdown — inline", () => {
     expect(container.querySelector("em")).toBeNull();
     expect(container.textContent).toBe("2 * 3 = 6");
   });
+
+  it("renders __bold__ and _italic_ too", () => {
+    const { container } = renderBody("__strong__ and _soft_");
+    expect(container.querySelector("strong")).toHaveTextContent("strong");
+    expect(container.querySelector("em")).toHaveTextContent("soft");
+  });
+
+  it("leaves underscores inside words alone", () => {
+    // Without word-boundary guards, "some_function_name" would render with an
+    // italic "function" — which makes underscore emphasis unusable for anyone
+    // writing about code.
+    const { container } = renderBody("call some_function_name now");
+    expect(container.querySelector("em")).toBeNull();
+    expect(container.textContent).toBe("call some_function_name now");
+  });
+
+  it("still emphasises underscores at word boundaries", () => {
+    // "__init__" surrounded by spaces does become bold. That's CommonMark's
+    // behaviour too, and it's the price of supporting "_italic_" at all —
+    // the guard above can only protect underscores *inside* a word.
+    const { container } = renderBody("the __init__ method");
+    expect(container.querySelector("strong")).toHaveTextContent("init");
+  });
+
+  it("nests emphasis", () => {
+    const { container } = renderBody("**_both_**");
+    expect(container.querySelector("strong > em")).toHaveTextContent("both");
+  });
 });
 
 describe("renderMarkdown — XSS", () => {
