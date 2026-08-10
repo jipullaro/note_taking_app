@@ -33,22 +33,30 @@ describe("Sidebar", () => {
     expect(link).toHaveTextContent("3");
   });
 
-  it("does not mark All Categories active on the archive route", async () => {
+  it("links to the unfiltered dashboard with the total count", async () => {
+    render(<Sidebar />);
+
+    const link = await screen.findByRole("link", { name: /all notes/i });
+    expect(link).toHaveAttribute("href", "/dashboard");
+    expect(link).toHaveTextContent("2");
+  });
+
+  it("does not mark All Notes active on the archive route", async () => {
     // No category is active on /archive either, so a bare !activeCategory
     // check renders this as the selected item while you're elsewhere.
     setPathname("/archive");
     render(<Sidebar />);
 
-    const allCategories = await screen.findByRole("link", { name: "All Categories" });
-    expect(allCategories.className).not.toMatch(/underline/);
+    const allNotes = await screen.findByRole("link", { name: /all notes/i });
+    expect(allNotes.className).not.toMatch(/font-bold/);
   });
 
-  it("marks All Categories active on the unfiltered dashboard", async () => {
+  it("marks All Notes active on the unfiltered dashboard", async () => {
     setPathname("/dashboard");
     render(<Sidebar />);
 
-    const allCategories = await screen.findByRole("link", { name: "All Categories" });
-    expect(allCategories.className).toMatch(/underline/);
+    const allNotes = await screen.findByRole("link", { name: /all notes/i });
+    expect(allNotes.className).toMatch(/font-bold/);
   });
 
   it("refreshes counts on the notes-changed event, without navigating", async () => {
