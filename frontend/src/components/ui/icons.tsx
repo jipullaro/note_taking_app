@@ -75,14 +75,6 @@ export function ArchiveIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function ArrowLeftIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M13 8H3M6.5 4.5L3 8l3.5 3.5" />
-    </svg>
-  );
-}
-
 export function NotesIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" {...props}>
