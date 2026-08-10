@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "@/lib/api";
 import { NOTES_CHANGED_EVENT } from "@/lib/events";
 import { resetNavigation, routerMock } from "@/test/next-navigation";
+import { captureToasts } from "@/test/toasts";
 import type { Note } from "@/types/note";
 
 import { ArchivedNoteCard } from "./ArchivedNoteCard";
@@ -26,6 +27,8 @@ const note: Note = {
 };
 
 describe("ArchivedNoteCard", () => {
+  const toasts = captureToasts();
+
   beforeEach(() => {
     resetNavigation();
     vi.mocked(apiFetch).mockReset().mockResolvedValue(undefined);
@@ -56,15 +59,14 @@ describe("ArchivedNoteCard", () => {
   });
 
   it("reports a failed restore and re-enables the button", async () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     vi.mocked(apiFetch).mockRejectedValue(new Error("boom"));
 
     render(<ArchivedNoteCard note={note} />);
     await userEvent.click(screen.getByRole("button", { name: /restore/i }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(toasts).toHaveLength(1));
+    expect(toasts[0].variant).toBe("error");
     expect(screen.getByRole("button", { name: /restore/i })).toBeEnabled();
-    alertSpy.mockRestore();
   });
 
   it("does not link to the editor", () => {
