@@ -46,10 +46,15 @@ Then open **http://localhost:3000**.
    category; click **All Categories** to clear the filter.
 8. Try deleting a category that has notes in it (trash icon) → refused with
    a message. Delete an empty one → it disappears.
-9. Open a note and click the trash icon → confirm → the note leaves the
-   dashboard and moves to the archive (`GET /api/notes/?archived=true`);
-   `POST /api/notes/<id>/restore/` brings it back.
-10. Click **Log out** in the sidebar → you're redirected to `/login`; visiting
+9. Open a note and click the trash icon → the confirm says it moves to the
+    archive → accept → the note leaves the dashboard and the category count
+    drops.
+10. Click **Archive** at the bottom of the sidebar → the note is there, dimmed,
+    dated by when it was archived, with no link into the editor. Click
+    **Restore** → it disappears from the archive and the sidebar's archive
+    count drops without a page navigation.
+11. Back on the dashboard, the restored note is in its category again.
+12. Click **Log out** in the sidebar → you're redirected to `/login`; visiting
     `/dashboard` directly now redirects back to `/login`.
 
 ## Development
@@ -76,8 +81,9 @@ make -C backend test         # backend, locally via uv + pytest
 npm --prefix frontend test   # frontend, via vitest
 ```
 
-Both run the same suite; the local one needs Postgres reachable on
-`localhost:5432` (`make up` or `docker compose up -d postgres`).
+The two backend commands run the same suite; the local one needs Postgres
+reachable on `localhost:5432` (`make up` or `docker compose up -d postgres`).
+The frontend suite needs neither Postgres nor a running backend.
 
 ## Notes on scope / design decisions
 

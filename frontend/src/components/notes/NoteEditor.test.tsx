@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/api";
-import { resetNavigation } from "@/test/next-navigation";
+import { resetNavigation, routerMock } from "@/test/next-navigation";
 import type { Category, Note } from "@/types/note";
 
 import { NoteEditor } from "./NoteEditor";
@@ -24,6 +24,7 @@ const note: Note = {
   category: personal,
   created_at: "2026-08-01T10:00:00Z",
   updated_at: "2026-08-01T10:00:00Z",
+  archived_at: null,
 };
 
 const mockApiFetch = vi.mocked(apiFetch);
@@ -45,6 +46,7 @@ function stubApi(categories: Category[], created: Category = work) {
       return Promise.resolve({ ...note, id: 9, category: created });
     if (path.startsWith("/notes/") && init.method === "PATCH")
       return Promise.resolve({ ...note, category: created });
+    if (path.startsWith("/notes/") && init.method === "DELETE") return Promise.resolve(undefined);
     return Promise.reject(new Error(`unexpected call: ${init.method ?? "GET"} ${path}`));
   });
 }
@@ -125,6 +127,51 @@ describe("NoteEditor categories", () => {
 
     expect(await screen.findByPlaceholderText("Note Title")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /work/i })).toBeInTheDocument();
+  });
+});
+
+describe("NoteEditor archiving", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetNavigation();
+    stubApi([personal]);
+  });
+
+  it("sends no request when the confirm is declined", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<NoteEditor initialNote={note} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+
+    expect(mockApiFetch).not.toHaveBeenCalledWith(`/notes/${note.id}/`, { method: "DELETE" });
+    expect(routerMock.push).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("archives and returns to the dashboard when confirmed", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<NoteEditor initialNote={note} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+
+    await waitFor(() => {
+      expect(mockApiFetch).toHaveBeenCalledWith(`/notes/${note.id}/`, { method: "DELETE" });
+    });
+    expect(routerMock.push).toHaveBeenCalledWith("/dashboard");
+    confirmSpy.mockRestore();
+  });
+
+  it("promises the archive rather than claiming the delete is permanent", async () => {
+    // The old copy said "This can't be undone", which stopped being true the
+    // moment DELETE started archiving.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<NoteEditor initialNote={note} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("archive"));
+    expect(confirmSpy).not.toHaveBeenCalledWith(expect.stringContaining("can't be undone"));
+    confirmSpy.mockRestore();
   });
 });
 
