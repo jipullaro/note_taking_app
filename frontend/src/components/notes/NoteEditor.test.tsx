@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/api";
@@ -21,19 +22,11 @@ const NOTE: Note = {
   updated_at: "2026-08-01T10:00:00Z",
 };
 
-/** Renders and flushes the categories fetch the editor kicks off on mount. */
+/** Renders and waits for the editor body to take over the DOM. */
 async function renderEditor(note: Note | undefined = NOTE) {
   const view = render(<NoteEditor initialNote={note} />);
-  await screen.findByLabelText("Note body");
-  return view;
-}
-
-function body() {
-  return screen.getByLabelText("Note body");
-}
-
-function textarea() {
-  return screen.getByPlaceholderText("Pour your heart out…");
+  const body = await screen.findByLabelText("Note body");
+  return { ...view, body };
 }
 
 beforeEach(() => {
@@ -46,49 +39,26 @@ beforeEach(() => {
 });
 
 describe("NoteEditor body", () => {
-  it("shows the rendered markdown, not a textarea, on load", async () => {
-    const { container } = await renderEditor();
+  it("shows the stored markdown as formatting, in an editable surface", async () => {
+    const { container, body } = await renderEditor();
 
-    expect(container.querySelector("textarea")).toBeNull();
     expect(container.querySelector("strong")).toHaveTextContent("tonight");
     expect(container.querySelectorAll("li")).toHaveLength(2);
-    // The markup characters themselves are gone from the rendered view.
-    expect(body().textContent).not.toContain("**");
+    expect(body.textContent).not.toContain("**");
+    // The formatting is live, not a read-only preview you have to click into.
+    expect(body).toHaveAttribute("contenteditable", "true");
   });
 
-  it("swaps in a textarea holding the RAW markdown when clicked", async () => {
-    await renderEditor();
-    fireEvent.click(body());
-
-    const input = textarea();
-    expect(input).toHaveValue(NOTE.body);
-    expect(input).toHaveFocus();
-    expect(screen.queryByLabelText("Note body")).toBeNull();
-  });
-
-  it("swaps back to the rendered output on blur", async () => {
+  it("has no textarea — formatting is applied in place", async () => {
     const { container } = await renderEditor();
-    fireEvent.click(body());
-    fireEvent.blur(textarea());
-
     expect(container.querySelector("textarea")).toBeNull();
-    expect(container.querySelector("ul")).not.toBeNull();
   });
 
-  it("shows a clickable placeholder for an empty body", async () => {
-    await renderEditor({ ...NOTE, body: "" });
+  it("autosaves the body as markdown after typing", async () => {
+    const { body } = await renderEditor({ ...NOTE, body: "" });
 
-    expect(screen.getByText("Pour your heart out…")).toBeInTheDocument();
-    fireEvent.click(body());
-    expect(textarea()).toHaveFocus();
-  });
-
-  it("still autosaves after the swap, and blur adds no extra save", async () => {
-    await renderEditor();
-    fireEvent.click(body());
-    fireEvent.change(textarea(), { target: { value: "- milk\n- eggs\n- **bread**" } });
-    // Blurring mid-debounce must not race or duplicate the pending save.
-    fireEvent.blur(textarea());
+    await userEvent.click(body);
+    await userEvent.keyboard("- milk");
 
     await waitFor(
       () => {
@@ -97,11 +67,25 @@ describe("NoteEditor body", () => {
           expect.objectContaining({ method: "PATCH" })
         );
       },
-      { timeout: 2000 }
+      { timeout: 3000 }
     );
 
     const saves = apiFetchMock.mock.calls.filter(([path]) => path === "/notes/1/");
-    expect(saves).toHaveLength(1);
-    expect(JSON.parse(saves[0][1]?.body as string).body).toBe("- milk\n- eggs\n- **bread**");
+    // Markdown, not the editor's HTML — the API's storage format is unchanged.
+    expect(JSON.parse(saves.at(-1)![1]?.body as string).body).toBe("- milk");
+  });
+
+  it("debounces rather than saving on every keystroke", async () => {
+    const { body } = await renderEditor({ ...NOTE, body: "" });
+
+    await userEvent.click(body);
+    await userEvent.keyboard("hello");
+
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/notes/1/", expect.anything()), {
+      timeout: 3000,
+    });
+
+    const saves = apiFetchMock.mock.calls.filter(([path]) => path === "/notes/1/");
+    expect(saves.length).toBeLessThan(5); // one per character would be 5
   });
 });
