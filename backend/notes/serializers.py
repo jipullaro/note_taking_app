@@ -42,8 +42,21 @@ class NoteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Note
-        fields = ("id", "title", "body", "category", "category_id", "created_at", "updated_at")
-        read_only_fields = ("id", "created_at", "updated_at")
+        fields = (
+            "id",
+            "title",
+            "body",
+            "category",
+            "category_id",
+            "created_at",
+            "updated_at",
+            "archived_at",
+        )
+        # `archived_at` is read-only on purpose: archiving happens through
+        # DELETE and the `restore` action only, so there's exactly one code
+        # path that sets it (Note.archive/restore) rather than a second one
+        # via PATCH that would skip the update_fields those methods rely on.
+        read_only_fields = ("id", "created_at", "updated_at", "archived_at")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

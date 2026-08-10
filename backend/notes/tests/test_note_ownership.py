@@ -41,6 +41,11 @@ class NoteOwnershipTests(APITestCase):
         response = self.client.delete(self.detail_url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(Note.objects.filter(id=self.note.id).exists())
+        # "Still exists" stopped being enough evidence once DELETE archives
+        # instead of destroying — an archived note still exists. Without this
+        # assertion the test would pass with IsOwner removed entirely.
+        self.note.refresh_from_db()
+        self.assertIsNone(self.note.archived_at)
 
     def test_other_user_does_not_see_note_in_list(self):
         self.client.force_authenticate(user=self.intruder)
