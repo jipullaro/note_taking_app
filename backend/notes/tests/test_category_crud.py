@@ -85,6 +85,67 @@ class CategoryCrudTests(APITestCase):
         self.assertFalse(Category.objects.filter(id=self.personal.id).exists())
         self.assertFalse(Note.objects.filter(id=note.id).exists())
 
+    def test_position_numbers_categories_in_creation_order(self):
+        Category.objects.create(owner=self.user, name="School")
+        Category.objects.create(owner=self.user, name="Work")
+
+        response = self.client.get(self.list_url)
+        self.assertEqual(
+            [(c["name"], c["position"]) for c in response.data],
+            [("Personal", 0), ("School", 1), ("Work", 2)],
+        )
+
+    def test_position_is_per_owner_not_global(self):
+        # The id sequence is global, so this user's categories start wherever
+        # the first user's left off — but their own first category is still
+        # position 0. The frontend paints the first four positions from a
+        # fixed palette, so getting this wrong would mean only the
+        # first-ever-registered user saw it.
+        Category.objects.create(owner=self.user, name="School")
+        other = User.objects.create_user(email="other@example.com", password="s0me-strong-pass")
+        other_work = Category.objects.create(owner=other, name="Work")
+        self.client.force_authenticate(user=other)
+
+        response = self.client.get(self.list_url)
+        self.assertEqual(
+            [(c["name"], c["position"]) for c in response.data],
+            [("Personal", 0), ("Work", 1)],
+        )
+        # ...and the ids really are past this user's, i.e. the test would pass
+        # trivially if position were just `id - 1`.
+        self.assertGreater(other_work.id, 2)
+
+    def test_nested_category_on_a_note_carries_its_position(self):
+        school = Category.objects.create(owner=self.user, name="School")
+        Note.objects.create(owner=self.user, title="Essay", category=school)
+
+        response = self.client.get(reverse("note-list"))
+        self.assertEqual(
+            response.data[0]["category"], {"id": school.id, "name": "School", "position": 1}
+        )
+
+    def test_listing_notes_does_not_query_per_note_for_position(self):
+        # position is derived, not stored, so the risk is a query per nested
+        # category. The map is built once per request and cached on the
+        # serializer context; this pins that.
+        school = Category.objects.create(owner=self.user, name="School")
+        for n in range(5):
+            Note.objects.create(owner=self.user, title=f"Note {n}", category=school)
+
+        # Two, for any number of notes: the notes (category select_related in)
+        # and a single query building the owner's position map.
+        with self.assertNumQueries(2):
+            self.client.get(reverse("note-list"))
+
+    def test_counts_endpoint_reports_positions(self):
+        Category.objects.create(owner=self.user, name="School")
+
+        response = self.client.get(reverse("note-counts"))
+        self.assertEqual(
+            [(c["name"], c["position"]) for c in response.data["categories"]],
+            [("Personal", 0), ("School", 1)],
+        )
+
     def test_unauthenticated_requests_are_rejected(self):
         self.client.force_authenticate(user=None)
         response = self.client.get(self.list_url)

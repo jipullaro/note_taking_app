@@ -3,10 +3,39 @@ from rest_framework import serializers
 from .models import Category, Note
 
 
-class CategorySerializer(serializers.ModelSerializer):
+class CategoryPositionMixin:
+    """Supplies `position`: a category's 0-based index in its owner's own
+    list, i.e. "this is your third category".
+
+    It's derived rather than stored, from Category.objects.positions() — the
+    one definition of that order (notes/models.py). The id can't stand in for
+    it: the id sequence is global, so the second user to register gets ids
+    that start wherever the first user's left off.
+
+    The map is built once per request and cached on the serializer context,
+    which is what keeps the nested-in-a-note case (below) from becoming a
+    query per note on the list endpoint. Serializers declare the field
+    themselves — DRF's metaclass only collects declared fields from
+    Serializer bases, so a field declared here would be dropped.
+    """
+
+    def get_position(self, category):
+        cache = self.context.setdefault("category_positions", {})
+        if category.owner_id not in cache:
+            cache[category.owner_id] = Category.objects.filter(
+                owner_id=category.owner_id
+            ).positions()
+        # A miss means the category was deleted mid-request; 0 is as good an
+        # answer as any for a row that no longer exists, and beats a 500.
+        return cache[category.owner_id].get(category.id, 0)
+
+
+class CategorySerializer(CategoryPositionMixin, serializers.ModelSerializer):
+    position = serializers.SerializerMethodField()
+
     class Meta:
         model = Category
-        fields = ("id", "name", "created_at")
+        fields = ("id", "name", "created_at", "position")
         read_only_fields = ("id", "created_at")
 
     def validate_name(self, value):
@@ -24,14 +53,20 @@ class CategorySerializer(serializers.ModelSerializer):
         return value
 
 
-class CategoryMiniSerializer(serializers.ModelSerializer):
+class CategoryMiniSerializer(CategoryPositionMixin, serializers.ModelSerializer):
     """Nested read-only representation used when a note reports its
     category. Colors live only on the frontend (see frontend/src/lib/categories.ts) —
-    this deliberately carries no color data."""
+    this deliberately carries no color data. `position` isn't an exception to
+    that: it's an ordering fact about the user's category list, which the
+    frontend happens to color from. A note card only ever holds its own
+    category, never the user's list, so without this it couldn't tell which
+    one it was looking at."""
+
+    position = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ("id", "name")
+        fields = ("id", "name", "position")
 
 
 class NoteSerializer(serializers.ModelSerializer):

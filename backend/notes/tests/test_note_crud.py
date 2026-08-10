@@ -27,7 +27,12 @@ class NoteCrudTests(APITestCase):
         note = Note.objects.get()
         self.assertEqual(note.owner, self.user)
         self.assertEqual(note.category_id, self.school.id)
-        self.assertEqual(response.data["category"], {"id": self.school.id, "name": "School"})
+        # position 1: "School" is the second category, behind the seeded
+        # "Personal" — the frontend colors categories off it.
+        self.assertEqual(
+            response.data["category"],
+            {"id": self.school.id, "name": "School", "position": 1},
+        )
 
     def test_create_note_rejects_missing_category(self):
         response = self.client.post(self.list_url, {"title": "Bad", "body": "..."})
