@@ -14,8 +14,8 @@ vi.mock("@/lib/api", () => ({
   apiErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }));
 
-const personal: Category = { id: 1, name: "Personal" };
-const work: Category = { id: 2, name: "Work" };
+const personal: Category = { id: 1, name: "Personal", position: 0 };
+const work: Category = { id: 2, name: "Work", position: 1 };
 
 const note: Note = {
   id: 7,

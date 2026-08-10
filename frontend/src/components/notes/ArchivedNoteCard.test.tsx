@@ -19,7 +19,7 @@ const note: Note = {
   id: 12,
   title: "Archived note",
   body: "Some body",
-  category: { id: 1, name: "Personal" },
+  category: { id: 1, name: "Personal", position: 0 },
   created_at: "2026-08-01T10:00:00Z",
   updated_at: "2026-08-02T10:00:00Z",
   archived_at: "2026-08-05T10:00:00Z",

@@ -1,6 +1,12 @@
 export interface Category {
   id: number;
   name: string;
+  /**
+   * 0-based index among the owner's own categories, oldest first. Served by
+   * the API (the id can't stand in for it — that sequence is global across
+   * users); the first few positions get a fixed palette, see lib/categories.ts.
+   */
+  position: number;
 }
 
 export interface Note {
