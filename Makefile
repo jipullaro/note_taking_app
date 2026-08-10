@@ -10,7 +10,7 @@ help:
 	@echo "  up               - start the full stack (postgres, backend, frontend)"
 	@echo "  down             - stop the stack"
 	@echo "  logs             - follow logs for all services"
-	@echo "  test             - run the backend test suite in a one-off container"
+	@echo "  test             - run the backend test suite (pytest) in a one-off container"
 	@echo "  migrate          - apply Django migrations in a one-off container"
 	@echo "  makemigrations   - generate Django migrations in a one-off container"
 	@echo "  backend-shell    - open a shell in a one-off backend container"
@@ -33,7 +33,7 @@ logs:
 	docker compose logs -f
 
 test:
-	docker compose run --rm backend python manage.py test
+	docker compose run --rm backend pytest
 
 migrate:
 	docker compose run --rm backend python manage.py migrate
