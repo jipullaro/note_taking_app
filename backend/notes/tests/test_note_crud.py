@@ -54,7 +54,9 @@ class NoteCrudTests(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["title"], "Mine")
 
-    def test_retrieve_update_delete_note(self):
+    def test_retrieve_and_update_note(self):
+        # DELETE is covered in test_note_archive.py, which is where the
+        # interesting part now lives (it archives rather than destroys).
         note = Note.objects.create(owner=self.user, title="Original", category=self.personal)
         detail_url = reverse("note-detail", args=[note.id])
 
@@ -70,10 +72,6 @@ class NoteCrudTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         note.refresh_from_db()
         self.assertEqual(note.category_id, self.school.id)
-
-        response = self.client.delete(detail_url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Note.objects.filter(id=note.id).exists())
 
     def test_category_filter(self):
         Note.objects.create(owner=self.user, title="A", category=self.school)

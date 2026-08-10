@@ -72,6 +72,19 @@ class CategoryCrudTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Category.objects.filter(id=self.personal.id).exists())
 
+    def test_delete_category_with_only_archived_notes_is_allowed(self):
+        # Archived notes don't block the delete — they're already on their
+        # way out, and they go down with the category via CASCADE. See the
+        # comment in CategoryViewSet.destroy.
+        note = Note.objects.create(owner=self.user, title="Trashed", category=self.personal)
+        note.archive()
+        detail_url = reverse("category-detail", args=[self.personal.id])
+
+        response = self.client.delete(detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Category.objects.filter(id=self.personal.id).exists())
+        self.assertFalse(Note.objects.filter(id=note.id).exists())
+
     def test_unauthenticated_requests_are_rejected(self):
         self.client.force_authenticate(user=None)
         response = self.client.get(self.list_url)

@@ -5,8 +5,8 @@ from .models import Category, Note
 
 @admin.register(Note)
 class NoteAdmin(admin.ModelAdmin):
-    list_display = ("title", "owner", "category", "created_at", "updated_at")
-    list_filter = ("category",)
+    list_display = ("title", "owner", "category", "created_at", "updated_at", "archived_at")
+    list_filter = ("category", "archived_at")
     search_fields = ("title", "body", "owner__email")
 
 
