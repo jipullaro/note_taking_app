@@ -324,6 +324,36 @@ describe("NoteEditor saving", () => {
     expect(postsTo("/notes/")).toHaveLength(1);
   });
 
+  it("leaves no stale draft when the category list lands mid-save", async () => {
+    // /categories/ resolving puts the default category into the editor's
+    // content ref. That isn't an edit, but a save in flight used to compare
+    // by object identity and read it as one — re-writing a draft after the
+    // save had just cleared it, which nothing then cleaned up.
+    const categories = deferred<Category[]>();
+    const patch = deferred<Note>();
+    stubWith((path, init = {}) => {
+      if (path === "/categories/" && !init.method) return categories.promise;
+      if (path === `/notes/${note.id}/` && init.method === "PATCH") return patch.promise;
+      return Promise.reject(new Error(`unexpected call: ${init.method ?? "GET"} ${path}`));
+    });
+
+    render(<NoteEditor initialNote={note} />);
+    await userEvent.type(await screen.findByPlaceholderText("Note Title"), "!");
+    await waitFor(
+      () =>
+        expect(mockApiFetch).toHaveBeenCalledWith(
+          `/notes/${note.id}/`,
+          expect.objectContaining({ method: "PATCH" })
+        ),
+      { timeout: 3000 }
+    );
+
+    categories.resolve([personal]); // arrives while the save is still out
+    patch.resolve({ ...note, title: `${note.title}!` });
+
+    await waitFor(() => expect(readDraft(note.id)).toBeNull(), { timeout: 3000 });
+  });
+
   it("says when a save is failing instead of losing it quietly", async () => {
     stubWith((path, init = {}) => {
       if (path === "/categories/" && !init.method) return Promise.resolve([personal]);

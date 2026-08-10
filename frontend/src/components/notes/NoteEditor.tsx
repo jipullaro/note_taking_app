@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, apiErrorMessage } from "@/lib/api";
 import { useAutosave } from "@/lib/autosave";
@@ -12,6 +12,14 @@ import { CategoryDropdown } from "./CategoryDropdown";
 import { NoteBodyEditor } from "./NoteBodyEditor";
 import { CloseIcon, TrashIcon } from "@/components/ui/icons";
 import type { Category, Note } from "@/types/note";
+
+/**
+ * The draft restore has to run before the browser paints, but this component
+ * is server-rendered first and useLayoutEffect does nothing there — React
+ * warns about exactly that. On the server there is no paint to be ahead of,
+ * so fall back to useEffect and keep the warning off the console.
+ */
+const useLayoutEffectOnClient = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /** Everything a save sends. Held in a ref as well as state — see `content`. */
 interface EditorContent {
@@ -60,6 +68,8 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const idRef = useRef<number | null>(initialNote?.id ?? null);
   const contentRef = useRef<EditorContent>({ title, body, category });
   const restoredRef = useRef(false);
+  // A restored draft's category id, waiting for the category list to land.
+  const pendingCategoryRef = useRef<number | null>(null);
   // Bumped to remount the body editor; see the restore effect below.
   const [bodyRevision, setBodyRevision] = useState(0);
 
@@ -91,12 +101,26 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
     // This content is on the server now, so the draft mirroring it can go.
     clearDraft(savedUnder);
-    if (contentRef.current !== sent && contentRef.current.category) {
+
+    // Compared by value rather than by object identity: contentRef is also
+    // replaced by things that aren't edits (the category default landing from
+    // /categories/), and an identity check reads those as "the user typed
+    // during the request" and leaves a draft behind that nothing clears.
+    const now = contentRef.current;
+    if (
+      now.category &&
+      (now.title !== sent.title ||
+        now.body !== sent.body ||
+        now.category.id !== sent.category.id)
+    ) {
       // Edits landed while the request was out. Re-file their draft under the
       // id the note has now — otherwise a "new note" draft outlives the note
       // it belonged to and gets restored into the *next* new note.
-      const { title, body, category } = contentRef.current;
-      writeDraft(idRef.current, { title, body, categoryId: category.id });
+      writeDraft(idRef.current, {
+        title: now.title,
+        body: now.body,
+        categoryId: now.category.id,
+      });
     }
   });
 
@@ -134,35 +158,54 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
         setCategories(data);
         // Not via update(): defaulting the category isn't an edit, and
         // scheduling a save here would create an empty note just for opening
-        // /notes/new.
+        // /notes/new. Only touched when it actually resolves something, so a
+        // note that already had a category doesn't see contentRef change for
+        // no reason (a save in flight reads that as an edit).
         const next = contentRef.current.category ?? data[0] ?? null;
-        contentRef.current = { ...contentRef.current, category: next };
-        setCategory(next);
+        if (next !== contentRef.current.category) {
+          contentRef.current = { ...contentRef.current, category: next };
+          setCategory(next);
+        }
+
+        // Second half of the restore below: a draft records a category by id,
+        // and only now is there a list to turn that back into the object the
+        // picker renders.
+        const wanted = pendingCategoryRef.current;
+        pendingCategoryRef.current = null;
+        const draftCategory = data.find((c) => c.id === wanted);
+        if (draftCategory && draftCategory.id !== contentRef.current.category?.id) {
+          update({ category: draftCategory });
+        }
       })
       .catch(() => {
         /* the editor still works with just the category it was loaded with */
       })
       .finally(() => setCategoriesLoaded(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetched once on mount; update() reads its inputs from refs
   }, []);
 
-  // Restore an unsaved draft, if there is one. Runs once the categories are
-  // in, because a draft stores a category id and turning that back into the
-  // object the picker renders needs the list.
-  useEffect(() => {
-    if (!categoriesLoaded || restoredRef.current) return;
+  /*
+   * Restore an unsaved draft, if there is one.
+   *
+   * Before paint, and without waiting for the categories: gating this on the
+   * fetch meant the note rendered the server's older copy first and only
+   * swapped in the draft once /categories/ came back, so a reload mid-edit
+   * showed the user their text going missing and then coming back. The
+   * category is the only part that needs the list, and it's resolved
+   * separately above.
+   */
+  useLayoutEffectOnClient(() => {
+    if (restoredRef.current) return;
     restoredRef.current = true;
 
     const draft = readDraft(idRef.current);
     if (draft === null) return;
 
     const current = contentRef.current;
-    const draftCategory = categories.find((c) => c.id === draft.categoryId) ?? current.category;
-    if (draftCategory === null) return; // nothing to file it under; keep it for later
-
     if (
       draft.title === current.title &&
       draft.body === current.body &&
-      draftCategory.id === current.category?.id
+      draft.categoryId === current.category?.id
     ) {
       clearDraft(idRef.current); // matches the server — the save did land
       return;
@@ -170,12 +213,14 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
     // A draft only outlives a save that didn't land, so what's here is
     // unsaved work: restore it over the server's older copy and push it up.
-    update({ title: draft.title, body: draft.body, category: draftCategory });
+    if (draft.categoryId !== current.category?.id) {
+      pendingCategoryRef.current = draft.categoryId;
+    }
+    update({ title: draft.title, body: draft.body });
     // The body editor reads `value` only when it mounts — it owns the
     // document after that — so restored markdown has to arrive as a remount.
     setBodyRevision((n) => n + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- guarded to run once
-  }, [categoriesLoaded, categories]);
+  }, []);
 
   async function handleClose() {
     // Never rejects, so a save that's failing can't strand the user in the

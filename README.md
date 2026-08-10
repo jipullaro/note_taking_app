@@ -150,7 +150,11 @@ The frontend suite needs neither Postgres nor a running backend.
     request can. A draft is deleted the moment the same content lands on the
     server, which gives its presence a meaning: it says "this was never
     saved". That invariant is what lets the editor restore a draft on load
-    without having to work out which copy is newer.
+    without having to work out which copy is newer. The restore runs in a
+    layout effect, before the browser paints — gating it on the `/categories/`
+    fetch (which only the draft's *category* actually needs) meant a reload
+    mid-edit showed the server's older copy first and swapped the draft in a
+    moment later, so the user watched their text go missing and come back.
 
   The status line (`Saving… / Couldn't save — retrying… / Last Edited`) is
   the whole substitute for the Save button the mockup doesn't have, so it
