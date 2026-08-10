@@ -174,3 +174,75 @@ describe("NoteEditor archiving", () => {
     confirmSpy.mockRestore();
   });
 });
+
+describe("NoteEditor body", () => {
+  const MARKDOWN_NOTE: Note = {
+    ...note,
+    id: 1,
+    body: "Shopping for **tonight**:\n- milk\n- eggs",
+  };
+
+  /** Renders and waits for the editor body to take over the DOM. */
+  async function renderEditor(initial: Note = MARKDOWN_NOTE) {
+    const view = render(<NoteEditor initialNote={initial} />);
+    const body = await screen.findByLabelText("Note body");
+    return { ...view, body };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetNavigation();
+    stubApi([personal]);
+  });
+
+  it("shows the stored markdown as formatting, in an editable surface", async () => {
+    const { container, body } = await renderEditor();
+
+    expect(container.querySelector("strong")).toHaveTextContent("tonight");
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(body.textContent).not.toContain("**");
+    // The formatting is live, not a read-only preview you have to click into.
+    expect(body).toHaveAttribute("contenteditable", "true");
+  });
+
+  it("has no textarea — formatting is applied in place", async () => {
+    const { container } = await renderEditor();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("autosaves the body as markdown after typing", async () => {
+    const { body } = await renderEditor({ ...MARKDOWN_NOTE, body: "" });
+
+    await userEvent.click(body);
+    await userEvent.keyboard("- milk");
+
+    await waitFor(
+      () => {
+        expect(mockApiFetch).toHaveBeenCalledWith(
+          "/notes/1/",
+          expect.objectContaining({ method: "PATCH" })
+        );
+      },
+      { timeout: 3000 }
+    );
+
+    const saves = mockApiFetch.mock.calls.filter(([path]) => path === "/notes/1/");
+    // Markdown, not the editor's HTML — the API's storage format is unchanged.
+    expect(JSON.parse(saves.at(-1)![1]?.body as string).body).toBe("- milk");
+  });
+
+  it("debounces rather than saving on every keystroke", async () => {
+    const { body } = await renderEditor({ ...MARKDOWN_NOTE, body: "" });
+
+    await userEvent.click(body);
+    await userEvent.keyboard("hello");
+
+    await waitFor(
+      () => expect(mockApiFetch).toHaveBeenCalledWith("/notes/1/", expect.anything()),
+      { timeout: 3000 }
+    );
+
+    const saves = mockApiFetch.mock.calls.filter(([path]) => path === "/notes/1/");
+    expect(saves.length).toBeLessThan(5); // one per character would be 5
+  });
+});

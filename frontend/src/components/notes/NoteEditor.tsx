@@ -7,6 +7,7 @@ import { emitNotesChanged } from "@/lib/events";
 import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
 import { CategoryDropdown } from "./CategoryDropdown";
+import { NoteBodyEditor } from "./NoteBodyEditor";
 import { CloseIcon, TrashIcon } from "@/components/ui/icons";
 import type { Category, Note } from "@/types/note";
 
@@ -265,14 +266,17 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
           placeholder="Note Title"
           className="mb-3 bg-transparent font-serif text-2xl font-bold text-ink placeholder:text-ink/40 outline-none"
         />
-        <textarea
+        <NoteBodyEditor
+          // Remount when the note changes: the editor owns its document once
+          // mounted, so a different note's body has to come in as a fresh mount
+          // rather than a prop update fighting the caret.
+          key={initialNote?.id ?? "new"}
           value={body}
-          onChange={(e) => {
-            setBody(e.target.value);
+          onChange={(markdown) => {
+            setBody(markdown);
             scheduleSave();
           }}
-          placeholder="Pour your heart out…"
-          className="min-h-[50vh] flex-1 resize-none bg-transparent text-ink placeholder:text-ink/40 outline-none"
+          className="flex flex-1 flex-col text-ink"
         />
       </div>
     </div>

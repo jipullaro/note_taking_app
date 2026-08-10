@@ -20,3 +20,41 @@ body {
   background-color: var(--color-cream);
   color: var(--color-ink);
 }
+
+/*
+ * Note body editor (Tiptap). Its content is contenteditable rather than React
+ * children, so Tailwind utilities can't be put on the elements — the bullets
+ * and emphasis a user types are created by ProseMirror at runtime. These rules
+ * are the editor's counterpart to the classes in src/lib/markdown.tsx, and the
+ * two should be kept looking the same: the editor is what the note looks like
+ * while you write it, that renderer is what the dashboard card shows.
+ */
+.ProseMirror {
+  flex: 1 1 auto;
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+}
+
+.ProseMirror li + li {
+  margin-top: 0.25rem;
+}
+
+.ProseMirror strong {
+  font-weight: 600;
+}
+
+.ProseMirror em {
+  font-style: italic;
+}
+
+/* Tiptap's Placeholder extension marks the first empty node with this. */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--color-ink) 40%, transparent);
+}
