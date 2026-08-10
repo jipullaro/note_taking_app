@@ -1,3 +1,28 @@
+# The backend image is shared by three services (the API, the Celery worker
+# and beat), which differ only in their command. The anchor below keeps the
+# build context, env and volumes in one place so they can't drift apart —
+# in particular the ./backend:/app bind mount, which every one of them needs
+# (see the comment on it).
+x-backend: &backend
+  build: ./backend
+  # Without this mount the worker and beat run the code baked into the image
+  # while `backend` runs the mounted working copy — so the task you're
+  # editing is not the task that runs, and nothing says so.
+  volumes:
+    - ./backend:/app
+  env_file: .env
+  environment:
+    # The settings default is localhost, which is right for a process on the
+    # host but points at the container itself in here. Defaulting it to the
+    # service name means the stack works even against a .env written before
+    # this variable existed — .env still wins if it sets one.
+    CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -12,17 +37,34 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    # Published like Postgres is, so a worker run from the host (see
+    # backend/Makefile) can reach the same broker the containers use.
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
-    build: ./backend
+    <<: *backend
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    volumes:
-      - ./backend:/app
     ports:
       - "8000:8000"
-    env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
+
+  worker:
+    <<: *backend
+    command: celery -A config worker --loglevel=info
+
+  beat:
+    <<: *backend
+    # --schedule keeps beat's shelve database in /tmp. Left at its default it
+    # writes celerybeat-schedule into the working directory, which is the
+    # bind-mounted repo.
+    command: celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule
 
   frontend:
     build: ./frontend

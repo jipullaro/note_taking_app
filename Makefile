@@ -2,7 +2,7 @@
 # loop without Docker, see backend/Makefile (uv-based, talks to the same
 # Postgres via the port published below).
 
-.PHONY: help build up down logs test migrate makemigrations backend-shell frontend-lint frontend-build clean
+.PHONY: help build up down logs test migrate makemigrations backend-shell purge worker-logs frontend-lint frontend-build clean
 
 help:
 	@echo "Targets:"
@@ -14,6 +14,8 @@ help:
 	@echo "  migrate          - apply Django migrations in a one-off container"
 	@echo "  makemigrations   - generate Django migrations in a one-off container"
 	@echo "  backend-shell    - open a shell in a one-off backend container"
+	@echo "  purge            - purge archived notes past the retention window (add ARGS='--dry-run')"
+	@echo "  worker-logs      - follow the Celery worker and beat logs"
 	@echo "  frontend-lint    - run eslint against the frontend"
 	@echo "  frontend-build   - run a production Next.js build"
 	@echo "  clean            - stop the stack and delete the Postgres volume"
@@ -41,6 +43,14 @@ makemigrations:
 
 backend-shell:
 	docker compose run --rm backend python manage.py shell
+
+# Runs the purge on demand, without a broker — same code path as the
+# scheduled task. `make purge ARGS="--dry-run"` reports without deleting.
+purge:
+	docker compose run --rm backend python manage.py purge_archived_notes $(ARGS)
+
+worker-logs:
+	docker compose logs -f worker beat
 
 frontend-lint:
 	docker compose run --rm frontend npx eslint .

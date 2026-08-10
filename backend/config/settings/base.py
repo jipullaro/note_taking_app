@@ -106,3 +106,27 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_CREDENTIALS = True
+
+# --- Archive retention / Celery ---
+
+# How long an archived note sticks around before it's purged for good.
+NOTE_ARCHIVE_RETENTION_DAYS = int(os.environ.get("NOTE_ARCHIVE_RETENTION_DAYS", "1"))
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+# The purge schedule is static and lives in version control rather than in
+# django-celery-beat. The DB-backed scheduler buys runtime-editable
+# schedules — at the cost of an extra installed app, its migrations, and an
+# admin surface — and nothing here needs to change the retention policy
+# without a deploy.
+#
+# The task is a literal string rather than an import: settings can't import
+# an app module without touching models before the app registry is ready.
+# notes/tasks.py pins the same string via an explicit `name=`, and
+# test_purge.py asserts the two still agree — that's the drift guard.
+CELERY_BEAT_SCHEDULE = {
+    "purge-archived-notes": {
+        "task": "notes.purge_archived_notes",
+        "schedule": timedelta(minutes=int(os.environ.get("NOTE_PURGE_INTERVAL_MINUTES", "60"))),
+    },
+}
