@@ -14,7 +14,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 }));
 
 const counts = {
-  categories: [{ id: 1, name: "Personal", count: 2 }],
+  categories: [{ id: 1, name: "Personal", position: 0, count: 2 }],
   all: 2,
   archived: 3,
 };

@@ -76,7 +76,11 @@ class NoteViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def counts(self, request):
-        categories = Category.objects.filter(owner=request.user)
+        # This payload is hand-built rather than serialized, so `position` is
+        # the index in `ordered()` directly — the same thing
+        # CategoryQuerySet.positions() (and so the serializers) computes, and
+        # free here since we're already walking the list in that order.
+        categories = Category.objects.filter(owner=request.user).ordered()
         rows = (
             Note.objects.filter(owner=request.user)
             .active()
@@ -85,7 +89,8 @@ class NoteViewSet(viewsets.ModelViewSet):
         )
         note_counts = {row["category_id"]: row["count"] for row in rows}
         categories_payload = [
-            {"id": c.id, "name": c.name, "count": note_counts.get(c.id, 0)} for c in categories
+            {"id": c.id, "name": c.name, "position": position, "count": note_counts.get(c.id, 0)}
+            for position, c in enumerate(categories)
         ]
         return Response(
             {
@@ -102,7 +107,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsOwner]
 
     def get_queryset(self):
-        return Category.objects.filter(owner=self.request.user)
+        # `.ordered()` rather than the model's default ordering so the list
+        # comes back in the same order the serialized `position` indexes into.
+        return Category.objects.filter(owner=self.request.user).ordered()
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)

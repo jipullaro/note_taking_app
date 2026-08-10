@@ -3,6 +3,30 @@ from django.db import models
 from django.utils import timezone
 
 
+class CategoryQuerySet(models.QuerySet):
+    def ordered(self):
+        """The order a user's categories are presented in, everywhere.
+
+        Meta.ordering already says created_at; `id` is added as a tiebreak so
+        two categories created in the same instant can't swap places between
+        requests. That matters more than it looks: `positions()` below is an
+        index into this order, and the frontend colors the first few
+        categories from a fixed palette off it (frontend/src/lib/categories.ts),
+        so an unstable order would be a category changing color.
+        """
+        return self.order_by("created_at", "id")
+
+    def positions(self):
+        """{category id: its 0-based index in `ordered()`}.
+
+        One query for the whole set, so serializing N notes that each nest
+        their category doesn't turn into N COUNTs. Call it on an owner's full
+        category set — a filtered or sliced queryset would number the rows it
+        happens to contain, not the user's actual list.
+        """
+        return {pk: index for index, pk in enumerate(self.ordered().values_list("id", flat=True))}
+
+
 class Category(models.Model):
     """A user-defined bucket for notes.
 
@@ -17,6 +41,8 @@ class Category(models.Model):
     )
     name = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = CategoryQuerySet.as_manager()
 
     class Meta:
         ordering = ["created_at"]

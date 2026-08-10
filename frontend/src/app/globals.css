@@ -4,8 +4,9 @@
  * Design tokens, pixel-sampled from the Figma exports in /assets.
  * Single source of truth for color/font tokens used across the app.
  * Category colors aren't here: categories are user-created, so there's no
- * fixed set to enumerate and their colors are generated per-category at
- * runtime instead (see src/lib/categories.ts).
+ * fixed set to enumerate. They're resolved per-category at runtime and
+ * applied as inline styles instead — a fixed palette for the first four,
+ * generated hues past that (see src/lib/categories.ts).
  */
 @theme inline {
   --color-cream: #faf1e3;

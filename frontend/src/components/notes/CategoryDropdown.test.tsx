@@ -6,8 +6,8 @@ import type { Category } from "@/types/note";
 
 import { CategoryDropdown } from "./CategoryDropdown";
 
-const personal: Category = { id: 1, name: "Personal" };
-const work: Category = { id: 2, name: "Work" };
+const personal: Category = { id: 1, name: "Personal", position: 0 };
+const work: Category = { id: 2, name: "Work", position: 1 };
 
 function setup(categories: Category[] = [personal, work]) {
   const onChange = vi.fn();
@@ -45,7 +45,7 @@ describe("CategoryDropdown", () => {
 
   it("reveals an input and creates the trimmed name on Enter", async () => {
     const { onCreate, user } = setup();
-    onCreate.mockResolvedValue({ id: 3, name: "Travel" });
+    onCreate.mockResolvedValue({ id: 3, name: "Travel", position: 2 });
 
     await openPanel(user);
     await user.click(screen.getByRole("button", { name: /new category/i }));
