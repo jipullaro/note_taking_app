@@ -189,8 +189,14 @@ CELERY_TASK_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_DEFAULT_QUEUE", "celery"
 # the same task is enqueued by a Vercel Cron Job hitting
 # /api/cron/purge-archived-notes/ (see notes/cron.py). Both paths end in the
 # same task, so the interval below and the `crons` entry in
-# backend/vercel.json are two knobs on the same policy — change them
-# together.
+# backend/vercel.json are two knobs on the same policy.
+#
+# They are deliberately not set to the same cadence: Vercel's Hobby plan
+# allows a cron job at most once a day and rejects the deployment outright
+# otherwise, so there it runs daily. Note the consequence for the retention
+# window — NOTE_ARCHIVE_RETENTION_DAYS is when a note *becomes* purgeable,
+# not when it disappears, and the gap between the two is however long it is
+# until the next run. On Vercel that's up to a further 24h.
 CELERY_BEAT_SCHEDULE = {
     "purge-archived-notes": {
         "task": "notes.purge_archived_notes",

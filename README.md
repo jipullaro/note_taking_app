@@ -181,14 +181,21 @@ cutoff. Note that Queues is a broker only, not a result backend.
 
 `celery beat` also needs a process Vercel doesn't have, so the schedule
 moves to a Vercel Cron Job. The `crons` entry in `backend/vercel.json` hits
-`/api/cron/purge-archived-notes/` hourly, and that endpoint (`notes/cron.py`)
-enqueues the same task beat would. It's a plain Django view rather than a DRF
-one because DRF's default `JWTAuthentication` would try to decode Vercel's
-`Authorization: Bearer $CRON_SECRET` header as a JWT and reject it first.
+`/api/cron/purge-archived-notes/` daily at 03:00 UTC, and that endpoint
+(`notes/cron.py`) enqueues the same task beat would. It's a plain Django view
+rather than a DRF one because DRF's default `JWTAuthentication` would try to
+decode Vercel's `Authorization: Bearer $CRON_SECRET` header as a JWT and
+reject it first.
 
 Two knobs on one policy: `NOTE_PURGE_INTERVAL_MINUTES` drives beat under
-compose, the `crons` schedule drives Vercel. Change them together. On the
-Hobby plan cron jobs run once a day at most, so adjust the schedule there.
+compose (hourly), the `crons` schedule drives Vercel (daily). They differ
+because **the Hobby plan allows at most one cron run per day and rejects the
+deployment outright otherwise** — anything more frequent needs Pro.
+
+That cadence is worth understanding: `NOTE_ARCHIVE_RETENTION_DAYS` is when a
+note becomes *eligible* for purging, not when it vanishes. The gap is however
+long it is until the next run — up to a further 24h on Vercel. With the
+default 1-day retention, an archived note lives 1–2 days.
 
 Under `docker compose up` none of this applies — the `worker` and `beat`
 services still run against Redis, from the same code.
