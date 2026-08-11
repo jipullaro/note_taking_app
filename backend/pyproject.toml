@@ -26,13 +26,10 @@ dev = [
 package = false
 
 # --- Vercel ---
-# Vercel would find the WSGI app on its own (it runs manage.py, reads
-# DJANGO_SETTINGS_MODULE, then WSGI_APPLICATION); it's stated explicitly
-# because the subscriber below has to be declared here anyway, and a file
-# that names one entrypoint and silently infers the other is worse to read.
-[tool.vercel]
-entrypoint = "config.wsgi:application"
-
+# The web entrypoint is NOT declared here: this directory is a service
+# (`services.backend` in the repo-root vercel.json), and that service's
+# `entrypoint` names config.wsgi:application. One source of truth.
+#
 # The Celery worker, built as a private Function that only Vercel Queues can
 # invoke — this is what replaces the long-lived `celery worker` process in
 # docker-compose. `topics` must match CELERY_TASK_DEFAULT_QUEUE in
