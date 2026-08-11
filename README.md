@@ -108,7 +108,7 @@ monorepo. `vercel.json` at the repo root defines both:
 | Service | Root | Framework | Public paths |
 | --- | --- | --- | --- |
 | `frontend` | `frontend/` | Next.js | everything not claimed below |
-| `backend` | `backend/` | Django (auto-detected) | `/backend/*`, `/admin*`, `/static/*` |
+| `backend` | `backend/` | Django (auto-detected) | `/backend/*`, `/static/*` |
 
 Each service is built separately and they share the deployment, so there's
 one domain, one set of environment variables and one firewall/protection
@@ -122,18 +122,32 @@ those route handlers are what keep JWTs in httpOnly cookies and out of
 browser JS. Routing `/api/*` to Django would shadow them and break the auth
 design. So Django is published under `/backend/*` instead.
 
-A service receives the **original** request path, so `/backend/api/notes/`
-would reach Django as `/backend/api/notes/` — a path its URLconf has never
-heard of. The service's `request.path` transform strips the prefix back off,
-and Django sees `/api/notes/`. No Django-side URL configuration, no
-`FORCE_SCRIPT_NAME`.
+A service receives the **original** request path — Vercel does not strip the
+matched prefix on the way in. So `/backend/api/notes/` arrives at Django as
+`/backend/api/notes/`, and Django has to own that path for real.
 
-`/admin*` and `/static/*` are routed to the same service but deliberately
-**not** stripped, because for those two the public path and the Django path
-must be identical: the admin generates its own redirects with `reverse()`
-(`/admin/login/`), and its templates reference `STATIC_URL` (`/static/…`).
-Strip the prefix there and every admin redirect would land on the frontend's
-catch-all.
+It does: `URL_PREFIX` (`config/settings/base.py`) nests the entire URLconf
+under the prefix, empty by default and `backend` under `config.settings.prod`.
+Everything therefore lives at `/backend/…`, **the admin included** — it's at
+`/backend/admin/`, not `/admin/`.
+
+Mounting the prefix rather than rewriting the path at the edge is the
+load-bearing choice. Because it's a genuine URLconf prefix, `reverse()`
+returns the URL a browser can actually request, so the admin's own login
+redirect stays inside the prefix instead of landing on the frontend's
+catch-all. No `FORCE_SCRIPT_NAME`, no edge rewriting, and it's testable
+locally: `notes/tests/test_url_prefix.py` covers it, and
+`test_cron.py` asserts the prefix in `vercel.json` and the one in the
+production settings are the same string.
+
+> An earlier version routed `/backend/*` through a `request.path` transform
+> that stripped the prefix, leaving Django unprefixed. The transform silently
+> did nothing on deploy: every API call 404'd while `/admin/` worked, because
+> only the prefixed paths depended on it. If you reintroduce edge rewriting,
+> verify it against a real deployment first — nothing local can catch that.
+
+`/static/*` is routed to the backend without any prefix, because Django's
+`STATIC_URL` is `/static/` and the admin's templates reference it directly.
 
 Routing into a service is final — if nothing inside matches, you get that
 service's 404, not a fallback to the other service.
@@ -147,6 +161,7 @@ service's 404, not a fallback to the other service.
 | `CRON_SECRET` | yes | Random string. Vercel sends it to the cron endpoint; unset, that endpoint refuses everything. |
 | `BACKEND_INTERNAL_URL` | yes | `https://<your-domain>/backend` — the frontend's server-side code appends `/api/…` to it |
 | `DJANGO_ALLOWED_HOSTS` | only for custom domains | Comma-separated. `*.vercel.app` hosts come from Vercel's own env vars. |
+| `DJANGO_URL_PREFIX` | no | Overrides the mount point, default `backend`. Change it and the `rewrites` and `crons` paths in `vercel.json` must move with it. |
 | `CORS_ALLOWED_ORIGINS` | rarely | Frontend and backend are now same-origin, so browser CORS isn't in play. |
 
 Set `DJANGO_SECRET_KEY` for all three environments (Production, Preview,
