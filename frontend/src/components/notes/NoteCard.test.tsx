@@ -19,7 +19,7 @@ const note: Note = {
   id: 7,
   title: "Live note",
   body: "Some body",
-  category: { id: 1, name: "Personal" },
+  category: { id: 1, name: "Personal", position: 0 },
   created_at: "2026-08-01T10:00:00Z",
   updated_at: "2026-08-02T10:00:00Z",
   archived_at: null,

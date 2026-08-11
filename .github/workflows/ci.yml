@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch makes the in-flight run obsolete; don't burn
+# runners finishing it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Lint runs through pre-commit rather than calling ruff and eslint directly,
+  # so CI enforces exactly what .pre-commit-config.yaml pins — including the
+  # ruff version. Invoking `uv run ruff` here instead would lint against
+  # whatever ruff uv.lock resolved (`ruff>=0.8.4`, currently 0.16), whose
+  # default rule set is wider than the pinned hook's and flags code the local
+  # hook accepts.
+  lint:
+    name: Lint (pre-commit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The eslint hook is `language: system` and shells out to
+      # `npm --prefix frontend run lint`, so it needs node and an installed
+      # frontend before pre-commit runs.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run hooks
+        run: pre-commit run --all-files --show-diff-on-failure
+
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+
+    # The Django settings talk to Postgres unconditionally (no sqlite
+    # fallback), so the suite needs a real server. Credentials match the
+    # POSTGRES_* env below; the user this image creates is a superuser, which
+    # pytest-django needs in order to CREATE the test_ database.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: notes
+          POSTGRES_USER: notes
+          POSTGRES_PASSWORD: notes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_DB: notes
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notes
+      # The service is published on the runner; the "postgres" hostname from
+      # .env only resolves inside the compose network.
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      DJANGO_SECRET_KEY: insecure-ci-key
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      # No test hits the broker (test_purge calls the task function directly),
+      # but Celery reads this when config/celery.py is imported.
+      CELERY_BROKER_URL: redis://localhost:6379/0
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        # Reads backend/.python-version — the same pin the Dockerfile uses.
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Check for model changes with no migration
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Run tests
+        run: uv run pytest -v
+
+  frontend:
+    name: Frontend (vitest + build)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      # `next build` type-checks too, but only after a full compile — running
+      # tsc first fails in seconds on a type error instead of a minute in.
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          # Every route reads cookies() and so renders dynamically — the build
+          # never calls the API — but this keeps the module-level default from
+          # depending on the runner's environment.
+          BACKEND_INTERNAL_URL: http://localhost:8000
