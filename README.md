@@ -188,14 +188,17 @@ decode Vercel's `Authorization: Bearer $CRON_SECRET` header as a JWT and
 reject it first.
 
 Two knobs on one policy: `NOTE_PURGE_INTERVAL_MINUTES` drives beat under
-compose (hourly), the `crons` schedule drives Vercel (daily). They differ
-because **the Hobby plan allows at most one cron run per day and rejects the
-deployment outright otherwise** — anything more frequent needs Pro.
+compose (hourly), the `crons` schedule drives Vercel (daily). The difference
+is intentional — a trash countdown measured in days doesn't need sweeping
+more often than daily, while locally you don't want to wait a day to watch
+the purge fire. Daily also happens to be the most the Hobby plan allows; it
+rejects the deployment outright otherwise, so raising it isn't just a config
+change.
 
-That cadence is worth understanding: `NOTE_ARCHIVE_RETENTION_DAYS` is when a
-note becomes *eligible* for purging, not when it vanishes. The gap is however
-long it is until the next run — up to a further 24h on Vercel. With the
-default 1-day retention, an archived note lives 1–2 days.
+Either way, note what the cadence means for retention:
+`NOTE_ARCHIVE_RETENTION_DAYS` is when a note becomes *eligible* for purging,
+not when it vanishes. The gap is however long it is until the next run, so
+with the default 1-day retention an archived note lives 1–2 days.
 
 Under `docker compose up` none of this applies — the `worker` and `beat`
 services still run against Redis, from the same code.
