@@ -7,25 +7,11 @@
     },
     "backend": {
       "root": "backend/",
-      "entrypoint": "config.wsgi:application",
-      "routes": [
-        {
-          "src": "/backend/(.*)",
-          "transforms": [
-            {
-              "type": "request.path",
-              "op": "set",
-              "args": "/$1"
-            }
-          ]
-        }
-      ]
+      "entrypoint": "config.wsgi:application"
     }
   },
   "rewrites": [
     { "source": "/backend/(.*)", "destination": { "service": "backend" } },
-    { "source": "/admin", "destination": { "service": "backend" } },
-    { "source": "/admin/(.*)", "destination": { "service": "backend" } },
     { "source": "/static/(.*)", "destination": { "service": "backend" } },
     { "source": "/(.*)", "destination": { "service": "frontend" } }
   ],

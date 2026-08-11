@@ -19,6 +19,14 @@ from .base import *  # noqa: F401,F403
 
 DEBUG = False
 
+# Django shares the deployment's domain with the Next.js service, so it is
+# published under /backend/* (see `rewrites` in the repo-root vercel.json).
+# The default lives here rather than in the Vercel project's environment
+# variables for the same reason the settings module does: a prefix that has
+# to be remembered is a prefix that will be forgotten, and the failure is a
+# 404 on every API call rather than anything that names the cause.
+URL_PREFIX = os.environ.get("DJANGO_URL_PREFIX", "backend").strip("/")
+
 if not os.environ.get("DJANGO_SECRET_KEY"):
     raise RuntimeError(
         "DJANGO_SECRET_KEY must be set in production. base.py falls back to a "

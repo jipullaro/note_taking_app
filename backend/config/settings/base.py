@@ -40,6 +40,16 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 
+# Public path prefix this app is mounted under, without surrounding slashes.
+#
+# Empty locally: docker-compose gives Django its own port, so it owns "/".
+# On Vercel it shares a domain with the Next.js app (which already owns
+# /api/auth/* and /api/proxy/*), so Django is published under a prefix and
+# config/urls.py nests every route beneath it. Doing it in the URLconf rather
+# than stripping the prefix at the edge means reverse() generates the real
+# public URL — admin redirects included — with no FORCE_SCRIPT_NAME.
+URL_PREFIX = os.environ.get("DJANGO_URL_PREFIX", "").strip("/")
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

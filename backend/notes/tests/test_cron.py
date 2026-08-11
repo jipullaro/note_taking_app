@@ -24,18 +24,18 @@ def _vercel_json():
 def _backend_public_prefix(config):
     """The public path prefix the backend service is mounted at.
 
-    Read from the service's own `request.path` transform rather than
-    hardcoded: that transform is the thing that strips the prefix back off
-    before Django sees the path, so it and the rewrite are two spellings of
-    one fact. Deriving it here means a rename has to move both.
+    Read from the rewrite that routes traffic into the service rather than
+    hardcoded, because Django is mounted under this exact prefix in its own
+    URLconf (see URL_PREFIX in config/settings/base.py). Vercel delivers the
+    path unchanged, so the rewrite's prefix and Django's have to be the same
+    string or every request 404s.
     """
-    (route,) = [
-        route
-        for route in config["services"]["backend"]["routes"]
-        if any(transform["type"] == "request.path" for transform in route["transforms"])
+    (source,) = [
+        rewrite["source"]
+        for rewrite in config["rewrites"]
+        if rewrite["destination"] == {"service": "backend"} and rewrite["source"] != "/static/(.*)"
     ]
-    src = route["src"]  # e.g. "/backend/(.*)"
-    return src[: src.index("/(.*)")]
+    return source[: source.index("/(.*)")]  # "/backend/(.*)" -> "/backend"
 
 
 def with_secret(value=CRON_SECRET):
@@ -152,12 +152,11 @@ class VercelQueueContractTests(TestCase):
     def test_cron_path_matches_the_route_through_the_public_prefix(self):
         """The cron URL is public, so it carries the service's path prefix.
 
-        Three things have to agree for a scheduled purge to land: the
-        top-level rewrite that routes `/backend/*` into this service, the
-        service's `request.path` transform that strips that prefix back off,
-        and the Django route the stripped path resolves to. The prefix is
-        read from the transform rather than hardcoded here, so the test is
-        asserting that chain rather than restating one end of it.
+        Vercel hands the service the original path, prefix included, and
+        Django is mounted under that same prefix — so the scheduled path is
+        the prefix plus what `reverse()` resolves to here (the suite runs
+        unprefixed). The prefix is read from vercel.json rather than
+        hardcoded, so renaming the mount point has to move both ends.
 
         Vercel's scheduler gets no feedback if the path 404s.
         """
@@ -166,17 +165,22 @@ class VercelQueueContractTests(TestCase):
 
         self.assertIn(_backend_public_prefix(config) + reverse("cron-purge-archived-notes"), crons)
 
-    def test_backend_is_publicly_routed_at_the_prefix_it_strips(self):
-        # The rewrite and the transform are written as two separate strings
-        # in vercel.json; nothing in Vercel checks that they agree, and if
-        # they don't, every backend request arrives at Django under a path
-        # its URLconf has never heard of.
-        config = json.loads(_vercel_json().read_text())
-        prefix = _backend_public_prefix(config)
+    def test_prod_mounts_django_under_the_prefix_it_is_routed_at(self):
+        """The rewrite prefix and Django's URL prefix are one fact, twice.
 
-        sources = {
-            rewrite["source"]
-            for rewrite in config["rewrites"]
-            if rewrite["destination"] == {"service": "backend"}
-        }
-        self.assertIn(f"{prefix}/(.*)", sources)
+        vercel.json routes `/backend/*` into this service and Vercel does not
+        rewrite the path on the way in, so `URL_PREFIX` in the production
+        settings has to name the same segment. When it doesn't, every request
+        reaches Django under a path its URLconf has never heard of and the
+        whole API 404s while looking perfectly healthy — which is exactly the
+        failure this mounting replaced.
+        """
+        prefix = _backend_public_prefix(json.loads(_vercel_json().read_text()))
+        prod = Path(settings.BASE_DIR) / "config" / "settings" / "prod.py"
+
+        # Read as text rather than imported: importing prod.py requires a
+        # secret key and would swap the settings out from under the suite.
+        self.assertIn(
+            f'os.environ.get("DJANGO_URL_PREFIX", "{prefix.lstrip("/")}")',
+            prod.read_text(),
+        )
