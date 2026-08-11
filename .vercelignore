@@ -1,0 +1,7 @@
+# Vercel builds only frontend/ (see vercel.json). Everything below is dead
+# weight in the deployment upload.
+backend/
+assets/
+docker-compose.yml
+Makefile
+.pre-commit-config.yaml

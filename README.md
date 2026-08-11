@@ -85,6 +85,49 @@ The two backend commands run the same suite; the local one needs Postgres
 reachable on `localhost:5432` (`make up` or `docker compose up -d postgres`).
 The frontend suite needs neither Postgres nor a running backend.
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull
+request, in three parallel jobs:
+
+- **Lint** — `pre-commit run --all-files`. CI deliberately goes through
+  pre-commit instead of calling ruff and eslint itself, so there's one
+  definition of "lint" and the hook versions pinned in
+  `.pre-commit-config.yaml` are the ones that run.
+- **Backend** — `makemigrations --check` (catches a model edit with no
+  migration) then `pytest`, against a Postgres 16 service container.
+- **Frontend** — `vitest`, `tsc --noEmit`, then `next build`.
+
+## Deploying the frontend to Vercel
+
+`vercel.json` at the repo root points Vercel at `frontend/`, so importing
+this repo needs no dashboard build configuration. One setting is required:
+
+| Env var | Value |
+| --- | --- |
+| `BACKEND_INTERNAL_URL` | Public HTTPS URL of the Django API, no trailing slash |
+
+Set it in **Project → Settings → Environment Variables**. Everything
+server-side (`lib/api.ts`, `lib/auth.ts`, the `/api/auth/*` and
+`/api/proxy/*` route handlers) reads it, and it falls back to
+`http://localhost:8000` if unset — which on Vercel means every request
+fails. It's read only on the server, so the API URL is never shipped to the
+browser.
+
+If Vercel's framework detection trips over there being no `package.json` at
+the repo root, the alternative is to delete `vercel.json` and set **Root
+Directory** to `frontend` in the project settings instead — Next.js is
+zero-config from there. Pick one or the other: a Root Directory of
+`frontend` makes Vercel look for `frontend/vercel.json` and ignore the root
+one entirely.
+
+Vercel only hosts the Next.js app. **Django, Postgres, Redis and the Celery
+worker/beat need separate hosting** (any container platform — the existing
+`backend/Dockerfile` is what you'd deploy), and that deployment has to allow
+the Vercel domain: add it to `CORS_ALLOWED_ORIGINS` and `ALLOWED_HOSTS`.
+`config.settings.dev` hardcodes `localhost:3000` and `DEBUG = True`, so a
+real deployment wants a `config/settings/prod.py` alongside it.
+
 ## Notes on scope / design decisions
 
 - **Categories are user-owned**, not a fixed set — a `Category` model
