@@ -1,0 +1,15 @@
+# Applies to the Django project, whose Vercel Root Directory is `backend/`
+# — Vercel reads the .vercelignore from the root directory, so the one at
+# the repo root belongs to the frontend project and is not consulted here.
+# (That one ignores `backend/` outright, which is correct for it and would
+# be fatal here.)
+#
+# Everything below is either build output or the Docker/local dev path, and
+# is dead weight inside the Function bundle.
+Dockerfile
+.dockerignore
+Makefile
+.pytest_cache/
+.ruff_cache/
+**/tests/
+staticfiles/

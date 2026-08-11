@@ -11,7 +11,10 @@ from celery import Celery
 
 # Same default as manage.py, so a worker started without an explicit
 # DJANGO_SETTINGS_MODULE lands on the same settings the app does.
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
+os.environ.setdefault(
+    "DJANGO_SETTINGS_MODULE",
+    "config.settings.prod" if os.environ.get("VERCEL") else "config.settings.dev",
+)
 
 app = Celery("config")
 # Celery settings live in Django settings under a CELERY_ prefix, so there's
