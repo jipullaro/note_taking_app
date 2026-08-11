@@ -1,9 +1,10 @@
-# This file belongs to the *frontend* Vercel project, whose Root Directory
-# is the repo root (see vercel.json next to it). The Django project is a
-# second Vercel project with a Root Directory of `backend/`, so it reads
-# backend/.vercelignore instead and is unaffected by the `backend/` line
-# below. Everything here is dead weight in the frontend's upload.
-backend/
+# One deployment now builds BOTH services (see `services` in vercel.json), so
+# neither frontend/ nor backend/ may be listed here — excluding `backend/`
+# was correct when the Django app was a separate project and would silently
+# empty the backend service now.
+#
+# What's left is the local-development surface, which is dead weight in the
+# upload and part of no service's build.
 assets/
 docker-compose.yml
 Makefile

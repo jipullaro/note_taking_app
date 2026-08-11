@@ -101,49 +101,68 @@ request, in three parallel jobs:
 
 ## Deploying to Vercel
 
-Both halves run on Vercel, as **two projects imported from this one repo**,
-distinguished by their Root Directory. Each reads the `vercel.json` in its
-own root, so the two configurations can't collide.
+Both halves ship as **one Vercel project, one deployment, one domain**, using
+[Services](https://vercel.com/docs/services) — Vercel's model for a polyglot
+monorepo. `vercel.json` at the repo root defines both:
 
-| Project | Root Directory | Config |
-| --- | --- | --- |
-| Frontend (Next.js) | repo root | `vercel.json` |
-| Backend (Django + Celery) | `backend` | `backend/vercel.json` |
+| Service | Root | Framework | Public paths |
+| --- | --- | --- | --- |
+| `frontend` | `frontend/` | Next.js | everything not claimed below |
+| `backend` | `backend/` | Django (auto-detected) | `/backend/*`, `/admin*`, `/static/*` |
 
-Create the second one with **Add New… → Project**, pick this repo again,
-and set Root Directory to `backend` before the first deploy.
+Each service is built separately and they share the deployment, so there's
+one domain, one set of environment variables and one firewall/protection
+surface. Import the repo once; no Root Directory to configure.
 
-### The Django project
+### Routing, and why the API lives under `/backend`
 
-Vercel detects Django by finding `backend/manage.py`, runs it to read
-`DJANGO_SETTINGS_MODULE`, and deploys `config/wsgi.py` as a single Function.
-`[tool.vercel]` in `backend/pyproject.toml` names that entrypoint explicitly,
-and dependencies install from the same `pyproject.toml` + `uv.lock` that the
-Docker image and CI use.
+The obvious split — Django at `/api/*` — is the one thing that *can't* work
+here. The Next.js app already owns `/api/auth/*` and `/api/proxy/*`, and
+those route handlers are what keep JWTs in httpOnly cookies and out of
+browser JS. Routing `/api/*` to Django would shadow them and break the auth
+design. So Django is published under `/backend/*` instead.
 
-Anything running on Vercel gets `config.settings.prod` automatically — every
-entrypoint defaults to it when the `VERCEL` env var is present, and
-`config.settings.dev` refuses to load there rather than risk shipping
-`DEBUG = True` and `ALLOWED_HOSTS = ["*"]`. There's no preview-specific
-configuration: a preview deployment is a production one pointed at whatever
-database its env vars name. **Don't set `DJANGO_SETTINGS_MODULE` on Vercel.**
+A service receives the **original** request path, so `/backend/api/notes/`
+would reach Django as `/backend/api/notes/` — a path its URLconf has never
+heard of. The service's `request.path` transform strips the prefix back off,
+and Django sees `/api/notes/`. No Django-side URL configuration, no
+`FORCE_SCRIPT_NAME`.
+
+`/admin*` and `/static/*` are routed to the same service but deliberately
+**not** stripped, because for those two the public path and the Django path
+must be identical: the admin generates its own redirects with `reverse()`
+(`/admin/login/`), and its templates reference `STATIC_URL` (`/static/…`).
+Strip the prefix there and every admin redirect would land on the frontend's
+catch-all.
+
+Routing into a service is final — if nothing inside matches, you get that
+service's 404, not a fallback to the other service.
+
+### Environment variables
 
 | Env var | Required | Value |
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | yes | Long random string. Startup fails without it. |
 | `DATABASE_URL` | yes | Postgres connection string — use the provider's **pooled** endpoint |
 | `CRON_SECRET` | yes | Random string. Vercel sends it to the cron endpoint; unset, that endpoint refuses everything. |
-| `DJANGO_ALLOWED_HOSTS` | only for custom domains | Comma-separated. `*.vercel.app` hosts are picked up from Vercel's own env vars. |
-| `CORS_ALLOWED_ORIGINS` | rarely | Comma-separated origins. The frontend calls the API from its Next.js *server*, so browser CORS usually isn't in play. |
+| `BACKEND_INTERNAL_URL` | yes | `https://<your-domain>/backend` — the frontend's server-side code appends `/api/…` to it |
+| `DJANGO_ALLOWED_HOSTS` | only for custom domains | Comma-separated. `*.vercel.app` hosts come from Vercel's own env vars. |
+| `CORS_ALLOWED_ORIGINS` | rarely | Frontend and backend are now same-origin, so browser CORS isn't in play. |
 
 Set `DJANGO_SECRET_KEY` for all three environments (Production, Preview,
 Development) — `vercel dev` runs the production settings module too.
 
+Anything running on Vercel gets `config.settings.prod` automatically: every
+entrypoint defaults to it when the `VERCEL` env var is present, and
+`config.settings.dev` refuses to load there rather than risk shipping
+`DEBUG = True` and `ALLOWED_HOSTS = ["*"]`. **Don't set
+`DJANGO_SETTINGS_MODULE` on Vercel.**
+
 Postgres comes from a marketplace integration (Neon, Supabase, …), which
-sets `DATABASE_URL` for you; `config/settings/base.py` accepts either that
-or the `POSTGRES_*` variables compose uses. `CONN_MAX_AGE` defaults to 0 on
-purpose: every concurrent Function instance holds its own connection, so
-pooling belongs to the provider's pooler, not to Django.
+sets `DATABASE_URL`; `config/settings/base.py` accepts either that or the
+`POSTGRES_*` variables compose uses. `CONN_MAX_AGE` defaults to 0 on purpose:
+every concurrent Function instance holds its own connection, so pooling
+belongs to the provider's pooler, not to Django.
 
 Migrations don't run during the build — a preview deploy would otherwise
 migrate whatever database it happens to point at. Run them yourself:
@@ -159,16 +178,19 @@ DJANGO_SETTINGS_MODULE=config.settings.prod uv run python manage.py migrate
 machine — it's the one place you name the module by hand. `createsuperuser`
 works the same way.
 
-`collectstatic` *is* run for you, because `STATIC_ROOT` is set; Vercel
-serves the result from its CDN, so the admin is styled with no extra config.
+`collectstatic` *is* run for you, because `STATIC_ROOT` is set.
 
 ### Celery
 
 There is no long-lived worker process. `[[tool.vercel.subscribers]]` in
-`backend/pyproject.toml` builds `worker:app` as a **private, queue-triggered
+`backend/pyproject.toml` builds `worker.py` as a **private, queue-triggered
 Function** that only Vercel Queues can invoke, and the `vercel://` broker
 (set as `CELERY_BROKER_URL` automatically) publishes to Queues instead of
 Redis. `.delay()` is unchanged at the call site, and no Redis is provisioned.
+
+Topics are scoped to the project and deployment, not to a service, and a
+queue consumer is never reachable from the internet — exposing a service with
+a top-level rewrite does not expose its consumers.
 
 The queue name is the whole binding between the two: `topics = ["celery"]`
 must match `CELERY_TASK_DEFAULT_QUEUE`, or tasks publish to a topic nothing
@@ -177,45 +199,47 @@ still agree.
 
 Queues deliver **at least once** and redeliver anything that raises or times
 out, so tasks must be idempotent — the purge is, since it deletes by a time
-cutoff. Note that Queues is a broker only, not a result backend.
+cutoff. Queues is a broker only, not a result backend.
 
-`celery beat` also needs a process Vercel doesn't have, so the schedule
-moves to a Vercel Cron Job. The `crons` entry in `backend/vercel.json` hits
-`/api/cron/purge-archived-notes/` hourly, and that endpoint (`notes/cron.py`)
-enqueues the same task beat would. It's a plain Django view rather than a DRF
-one because DRF's default `JWTAuthentication` would try to decode Vercel's
+`celery beat` also needs a process Vercel doesn't have, so the schedule moves
+to a Vercel Cron Job. The `crons` entry in `vercel.json` hits
+`/backend/api/cron/purge-archived-notes/` daily at 03:00 UTC — note the public
+prefix — and that endpoint (`notes/cron.py`) enqueues the same task beat
+would. It's a plain Django view rather than a DRF one because DRF's default
+`JWTAuthentication` would try to decode Vercel's
 `Authorization: Bearer $CRON_SECRET` header as a JWT and reject it first.
 
 Two knobs on one policy: `NOTE_PURGE_INTERVAL_MINUTES` drives beat under
-compose, the `crons` schedule drives Vercel. Change them together. On the
-Hobby plan cron jobs run once a day at most, so adjust the schedule there.
+compose (hourly), the `crons` schedule drives Vercel (daily). The difference
+is intentional — a trash countdown measured in days doesn't need sweeping
+more often than daily, while locally you don't want to wait a day to watch
+the purge fire. Daily also happens to be the most the Hobby plan allows; it
+rejects the deployment outright otherwise, so raising it isn't just a config
+change.
 
-Under `docker compose up` none of this applies — the `worker` and `beat`
-services still run against Redis, from the same code.
+Either way, note what the cadence means for retention:
+`NOTE_ARCHIVE_RETENTION_DAYS` is when a note becomes *eligible* for purging,
+not when it vanishes. The gap is however long it is until the next run, so
+with the default 1-day retention an archived note lives 1–2 days.
 
-### The frontend project
+`docker compose up` is untouched by any of this — `worker` and `beat` still
+run against Redis, from the same code.
 
-`vercel.json` at the repo root points Vercel at `frontend/`, so importing
-this repo needs no dashboard build configuration. One setting is required:
+### Account permissions
 
-| Env var | Value |
-| --- | --- |
-| `BACKEND_INTERNAL_URL` | Public HTTPS URL of the Django project above, no trailing slash |
+Several of the features this configuration depends on are gated, and a
+deployment fails in confusing ways when one is off — a missing Python runtime
+shows up as `The pattern "config/wsgi.py" defined in functions doesn't match
+any Serverless Functions inside the api directory`, which is Vercel falling
+back to zero-config because framework detection never ran. Confirm all of
+these are enabled before debugging the config:
 
-Set it in **Project → Settings → Environment Variables**. Everything
-server-side (`lib/api.ts`, `lib/auth.ts`, the `/api/auth/*` and
-`/api/proxy/*` route handlers) reads it, and it falls back to
-`http://localhost:8000` if unset — which on Vercel means every request
-fails. It's read only on the server, so the API URL is never shipped to the
-browser.
+- **Services** — the whole layout above
+- **The Python runtime** — required for Django to be detected at all
+- **Vercel Queues** — required for the Celery subscriber
 
-If Vercel's framework detection trips over there being no `package.json` at
-the repo root, the alternative is to delete `vercel.json` and set **Root
-Directory** to `frontend` in the project settings instead — Next.js is
-zero-config from there. Pick one or the other: a Root Directory of
-`frontend` makes Vercel look for `frontend/vercel.json` and ignore the root
-one entirely.
-
+`vercel dev` runs both services together locally, with `vercel dev -L` for a
+fully offline run.
 ## Notes on scope / design decisions
 
 - **Categories are user-owned**, not a fixed set — a `Category` model

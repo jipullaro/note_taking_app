@@ -11,6 +11,33 @@ from django.urls import reverse
 CRON_SECRET = "test-cron-secret"
 
 
+def _vercel_json():
+    """The single vercel.json, which lives one level up from BASE_DIR.
+
+    Both services are configured in one file at the repo root — `root` in a
+    service is relative to it — so this is deliberately outside the Django
+    project.
+    """
+    return Path(settings.BASE_DIR).parent / "vercel.json"
+
+
+def _backend_public_prefix(config):
+    """The public path prefix the backend service is mounted at.
+
+    Read from the service's own `request.path` transform rather than
+    hardcoded: that transform is the thing that strips the prefix back off
+    before Django sees the path, so it and the rewrite are two spellings of
+    one fact. Deriving it here means a rename has to move both.
+    """
+    (route,) = [
+        route
+        for route in config["services"]["backend"]["routes"]
+        if any(transform["type"] == "request.path" for transform in route["transforms"])
+    ]
+    src = route["src"]  # e.g. "/backend/(.*)"
+    return src[: src.index("/(.*)")]
+
+
 def with_secret(value=CRON_SECRET):
     """Patch CRON_SECRET into the environment for the duration of a block.
 
@@ -122,10 +149,34 @@ class VercelQueueContractTests(TestCase):
         topics = {topic for subscriber in subscribers for topic in subscriber["topics"]}
         self.assertIn(settings.CELERY_TASK_DEFAULT_QUEUE, topics)
 
-    def test_cron_path_matches_the_route(self):
-        # vercel.json hardcodes a URL. `reverse()` is the only thing that
-        # knows what the route actually resolves to, trailing slash included
-        # — Vercel's scheduler gets no feedback if it 404s.
-        crons = json.loads((Path(settings.BASE_DIR) / "vercel.json").read_text())["crons"]
+    def test_cron_path_matches_the_route_through_the_public_prefix(self):
+        """The cron URL is public, so it carries the service's path prefix.
 
-        self.assertIn(reverse("cron-purge-archived-notes"), {cron["path"] for cron in crons})
+        Three things have to agree for a scheduled purge to land: the
+        top-level rewrite that routes `/backend/*` into this service, the
+        service's `request.path` transform that strips that prefix back off,
+        and the Django route the stripped path resolves to. The prefix is
+        read from the transform rather than hardcoded here, so the test is
+        asserting that chain rather than restating one end of it.
+
+        Vercel's scheduler gets no feedback if the path 404s.
+        """
+        config = json.loads(_vercel_json().read_text())
+        crons = {cron["path"] for cron in config["crons"]}
+
+        self.assertIn(_backend_public_prefix(config) + reverse("cron-purge-archived-notes"), crons)
+
+    def test_backend_is_publicly_routed_at_the_prefix_it_strips(self):
+        # The rewrite and the transform are written as two separate strings
+        # in vercel.json; nothing in Vercel checks that they agree, and if
+        # they don't, every backend request arrives at Django under a path
+        # its URLconf has never heard of.
+        config = json.loads(_vercel_json().read_text())
+        prefix = _backend_public_prefix(config)
+
+        sources = {
+            rewrite["source"]
+            for rewrite in config["rewrites"]
+            if rewrite["destination"] == {"service": "backend"}
+        }
+        self.assertIn(f"{prefix}/(.*)", sources)
