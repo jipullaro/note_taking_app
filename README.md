@@ -9,7 +9,8 @@ dashboard.
 - **Backend**: Python, Django + Django REST Framework, PostgreSQL, JWT auth
   (`djangorestframework-simplejwt`)
 - **Frontend**: React + Next.js (App Router, TypeScript), Tailwind CSS
-- **Infra**: Docker Compose (postgres + backend + frontend)
+- **Infra**: Docker Compose locally (postgres + redis + backend + worker + beat +
+  frontend); Vercel in production (see "Deploying to Vercel")
 - **Tooling**: uv (backend deps), ruff (lint + format), pytest, eslint,
   pre-commit
 
@@ -98,14 +99,108 @@ request, in three parallel jobs:
   migration) then `pytest`, against a Postgres 16 service container.
 - **Frontend** — `vitest`, `tsc --noEmit`, then `next build`.
 
-## Deploying the frontend to Vercel
+## Deploying to Vercel
+
+Both halves run on Vercel, as **two projects imported from this one repo**,
+distinguished by their Root Directory. Each reads the `vercel.json` in its
+own root, so the two configurations can't collide.
+
+| Project | Root Directory | Config |
+| --- | --- | --- |
+| Frontend (Next.js) | repo root | `vercel.json` |
+| Backend (Django + Celery) | `backend` | `backend/vercel.json` |
+
+Create the second one with **Add New… → Project**, pick this repo again,
+and set Root Directory to `backend` before the first deploy.
+
+### The Django project
+
+Vercel detects Django by finding `backend/manage.py`, runs it to read
+`DJANGO_SETTINGS_MODULE`, and deploys `config/wsgi.py` as a single Function.
+`[tool.vercel]` in `backend/pyproject.toml` names that entrypoint explicitly,
+and dependencies install from the same `pyproject.toml` + `uv.lock` that the
+Docker image and CI use.
+
+Anything running on Vercel gets `config.settings.prod` automatically — every
+entrypoint defaults to it when the `VERCEL` env var is present, and
+`config.settings.dev` refuses to load there rather than risk shipping
+`DEBUG = True` and `ALLOWED_HOSTS = ["*"]`. There's no preview-specific
+configuration: a preview deployment is a production one pointed at whatever
+database its env vars name. **Don't set `DJANGO_SETTINGS_MODULE` on Vercel.**
+
+| Env var | Required | Value |
+| --- | --- | --- |
+| `DJANGO_SECRET_KEY` | yes | Long random string. Startup fails without it. |
+| `DATABASE_URL` | yes | Postgres connection string — use the provider's **pooled** endpoint |
+| `CRON_SECRET` | yes | Random string. Vercel sends it to the cron endpoint; unset, that endpoint refuses everything. |
+| `DJANGO_ALLOWED_HOSTS` | only for custom domains | Comma-separated. `*.vercel.app` hosts are picked up from Vercel's own env vars. |
+| `CORS_ALLOWED_ORIGINS` | rarely | Comma-separated origins. The frontend calls the API from its Next.js *server*, so browser CORS usually isn't in play. |
+
+Set `DJANGO_SECRET_KEY` for all three environments (Production, Preview,
+Development) — `vercel dev` runs the production settings module too.
+
+Postgres comes from a marketplace integration (Neon, Supabase, …), which
+sets `DATABASE_URL` for you; `config/settings/base.py` accepts either that
+or the `POSTGRES_*` variables compose uses. `CONN_MAX_AGE` defaults to 0 on
+purpose: every concurrent Function instance holds its own connection, so
+pooling belongs to the provider's pooler, not to Django.
+
+Migrations don't run during the build — a preview deploy would otherwise
+migrate whatever database it happens to point at. Run them yourself:
+
+```bash
+cd backend
+vercel env pull .env.local                  # DATABASE_URL, DJANGO_SECRET_KEY, …
+set -a && . ./.env.local && set +a          # manage.py does not read it by itself
+DJANGO_SETTINGS_MODULE=config.settings.prod uv run python manage.py migrate
+```
+
+`DJANGO_SETTINGS_MODULE` is explicit there because `VERCEL` isn't set on your
+machine — it's the one place you name the module by hand. `createsuperuser`
+works the same way.
+
+`collectstatic` *is* run for you, because `STATIC_ROOT` is set; Vercel
+serves the result from its CDN, so the admin is styled with no extra config.
+
+### Celery
+
+There is no long-lived worker process. `[[tool.vercel.subscribers]]` in
+`backend/pyproject.toml` builds `worker:app` as a **private, queue-triggered
+Function** that only Vercel Queues can invoke, and the `vercel://` broker
+(set as `CELERY_BROKER_URL` automatically) publishes to Queues instead of
+Redis. `.delay()` is unchanged at the call site, and no Redis is provisioned.
+
+The queue name is the whole binding between the two: `topics = ["celery"]`
+must match `CELERY_TASK_DEFAULT_QUEUE`, or tasks publish to a topic nothing
+subscribes to and vanish silently. `notes/tests/test_cron.py` asserts they
+still agree.
+
+Queues deliver **at least once** and redeliver anything that raises or times
+out, so tasks must be idempotent — the purge is, since it deletes by a time
+cutoff. Note that Queues is a broker only, not a result backend.
+
+`celery beat` also needs a process Vercel doesn't have, so the schedule
+moves to a Vercel Cron Job. The `crons` entry in `backend/vercel.json` hits
+`/api/cron/purge-archived-notes/` hourly, and that endpoint (`notes/cron.py`)
+enqueues the same task beat would. It's a plain Django view rather than a DRF
+one because DRF's default `JWTAuthentication` would try to decode Vercel's
+`Authorization: Bearer $CRON_SECRET` header as a JWT and reject it first.
+
+Two knobs on one policy: `NOTE_PURGE_INTERVAL_MINUTES` drives beat under
+compose, the `crons` schedule drives Vercel. Change them together. On the
+Hobby plan cron jobs run once a day at most, so adjust the schedule there.
+
+Under `docker compose up` none of this applies — the `worker` and `beat`
+services still run against Redis, from the same code.
+
+### The frontend project
 
 `vercel.json` at the repo root points Vercel at `frontend/`, so importing
 this repo needs no dashboard build configuration. One setting is required:
 
 | Env var | Value |
 | --- | --- |
-| `BACKEND_INTERNAL_URL` | Public HTTPS URL of the Django API, no trailing slash |
+| `BACKEND_INTERNAL_URL` | Public HTTPS URL of the Django project above, no trailing slash |
 
 Set it in **Project → Settings → Environment Variables**. Everything
 server-side (`lib/api.ts`, `lib/auth.ts`, the `/api/auth/*` and
@@ -120,13 +215,6 @@ Directory** to `frontend` in the project settings instead — Next.js is
 zero-config from there. Pick one or the other: a Root Directory of
 `frontend` makes Vercel look for `frontend/vercel.json` and ignore the root
 one entirely.
-
-Vercel only hosts the Next.js app. **Django, Postgres, Redis and the Celery
-worker/beat need separate hosting** (any container platform — the existing
-`backend/Dockerfile` is what you'd deploy), and that deployment has to allow
-the Vercel domain: add it to `CORS_ALLOWED_ORIGINS` and `ALLOWED_HOSTS`.
-`config.settings.dev` hardcodes `localhost:3000` and `DEBUG = True`, so a
-real deployment wants a `config/settings/prod.py` alongside it.
 
 ## Notes on scope / design decisions
 

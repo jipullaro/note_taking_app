@@ -1,5 +1,8 @@
-# Vercel builds only frontend/ (see vercel.json). Everything below is dead
-# weight in the deployment upload.
+# This file belongs to the *frontend* Vercel project, whose Root Directory
+# is the repo root (see vercel.json next to it). The Django project is a
+# second Vercel project with a Root Directory of `backend/`, so it reads
+# backend/.vercelignore instead and is unaffected by the `backend/` line
+# below. Everything here is dead weight in the frontend's upload.
 backend/
 assets/
 docker-compose.yml

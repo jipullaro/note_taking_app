@@ -25,6 +25,28 @@ dev = [
 [tool.uv]
 package = false
 
+# --- Vercel ---
+# Vercel would find the WSGI app on its own (it runs manage.py, reads
+# DJANGO_SETTINGS_MODULE, then WSGI_APPLICATION); it's stated explicitly
+# because the subscriber below has to be declared here anyway, and a file
+# that names one entrypoint and silently infers the other is worse to read.
+[tool.vercel]
+entrypoint = "config.wsgi:application"
+
+# The Celery worker, built as a private Function that only Vercel Queues can
+# invoke — this is what replaces the long-lived `celery worker` process in
+# docker-compose. `topics` must match CELERY_TASK_DEFAULT_QUEUE in
+# config/settings/base.py or published tasks land on a topic nobody reads.
+[[tool.vercel.subscribers]]
+entrypoint = "worker:app"
+topics = ["celery"]
+# Queues deliver at least once and retry anything that raises or times out.
+# The purge is idempotent (it deletes by a time cutoff, so a redelivery just
+# finds nothing left), so a retry is free; concurrency is capped low because
+# every concurrent task holds a Postgres connection.
+retry_after_seconds = 60
+max_concurrency = 5
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
 python_files = ["test_*.py"]
