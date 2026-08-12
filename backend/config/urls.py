@@ -5,8 +5,14 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from accounts.views import EmailTokenObtainPairView
 
+from .health import health
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Sits with the project's own routes rather than under an app: it reports
+    # on the service, not on a resource. It moves under URL_PREFIX with
+    # everything else below, so the public path is /backend/api/health/.
+    path("api/health/", health, name="health"),
     path("api/auth/", include("accounts.urls")),
     path("api/auth/token/", EmailTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),

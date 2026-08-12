@@ -41,6 +41,8 @@ class UrlPrefixTests(SimpleTestCase):
         # What docker-compose gets: Django has its own port, so it owns "/".
         self.assertEqual(reverse("cron-purge-archived-notes"), "/api/cron/purge-archived-notes/")
         self.assertEqual(reverse("register"), "/api/auth/register/")
+        # The path docker-compose's healthcheck asks for, spelled out there.
+        self.assertEqual(reverse("health"), "/api/health/")
 
     def test_every_route_moves_under_the_prefix(self):
         with override_settings(URL_PREFIX="backend"):
@@ -52,6 +54,8 @@ class UrlPrefixTests(SimpleTestCase):
             )
             self.assertEqual(reverse("register"), "/backend/api/auth/register/")
             self.assertEqual(reverse("token_obtain_pair"), "/backend/api/auth/token/")
+            # Where an uptime monitor pointed at the deployment has to ask.
+            self.assertEqual(reverse("health"), "/backend/api/health/")
 
     def test_admin_moves_too_so_its_own_redirects_stay_inside_the_prefix(self):
         # The admin builds its login redirect with reverse(). If the prefix
