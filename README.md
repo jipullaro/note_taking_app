@@ -4,6 +4,9 @@ A cozy little note-taking app: register/login, jot down notes, sort them into
 categories you create and name yourself, and manage the whole lot from a
 dashboard.
 
+- **Live demo**: https://note-taking-app-two-sandy.vercel.app/
+- **Video walkthrough**: https://www.loom.com/share/7a93a4477dba49cd9915b7a57ffdaddc
+
 ## Stack
 
 - **Backend**: Python, Django + Django REST Framework, PostgreSQL, JWT auth
