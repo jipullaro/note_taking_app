@@ -47,8 +47,13 @@ export function NoteSearch({ notes, action }: { notes: Note[]; action?: ReactNod
   return (
     <>
       {/* Search and the page action share a row; below ~14rem of room for the
-          field, the action wraps under it rather than squeezing it. */}
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+          field, the action wraps under it rather than squeezing it. Phones
+          don't reach that — the dashboard's button is an icon there, and the
+          pair fits — so the wrap is a last resort. `justify-end` is for it:
+          the field is flex-1, so justify-content has no free space to
+          distribute while the two share a row, but the action alone on a
+          second line would otherwise sit left of where it is everywhere else. */}
+      <div className="mb-8 flex flex-wrap items-center justify-end gap-4">
         <div role="search" className="min-w-56 flex-1">
           <div className="relative">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-ink/40" />
