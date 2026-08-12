@@ -41,6 +41,15 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
   const latestRef = useRef({ title, body, category });
+  // `id` for the code that runs outside the render which set it: save()
+  // reads it back after awaiting its own POST, and the unmount cleanup runs
+  // after the last render, so the state alone would be a frame behind.
+  const idRef = useRef(id);
+  // Categories created from inside this editor while the note still didn't
+  // exist. Creating one persists it immediately (POST /categories/), so a
+  // category made for a note that's then abandoned would outlive it — see
+  // discardUnusedCategories() below.
+  const createdCategoriesRef = useRef<Category[]>([]);
 
   useEffect(() => {
     latestRef.current = { title, body, category };
@@ -70,6 +79,11 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
     const { title, body, category } = latestRef.current;
     if (!category) return; // nothing to save without a category yet
+    // A note that has never been saved and has nothing in it isn't a note
+    // yet: picking — or creating — a category on a blank new note shouldn't
+    // strand an empty note on the dashboard. Emptying a note that already
+    // exists is a real edit, and still saves.
+    if (id === null && !title.trim() && !body.trim()) return;
 
     const payload = { title, body, category_id: category.id };
     setSaving(true);
@@ -80,6 +94,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
           body: JSON.stringify(payload),
         });
         setId(created.id);
+        idRef.current = created.id;
         setUpdatedAt(created.updated_at);
       } else {
         const updated = await apiFetch<Note>(`/notes/${id}/`, {
@@ -100,11 +115,52 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
     timerRef.current = setTimeout(save, AUTOSAVE_DELAY_MS);
   }
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+  /**
+   * Deletes the categories this editor created that nothing ended up filed
+   * under — because the note was abandoned before it was ever saved, or was
+   * saved under a different category in the end.
+   *
+   * Only categories created here are candidates, so a pre-existing one is
+   * never touched, and the category the note was saved under is kept. The
+   * API is the backstop for anything else: it refuses to delete a category
+   * that still has notes in it (CategoryViewSet.destroy), so one that picked
+   * up a note elsewhere survives this. Failures are swallowed on purpose —
+   * a category left behind is only the status quo, not worth a toast at
+   * someone already on their way out of the editor.
+   */
+  const discardUnusedCategories = useCallback((keepalive = false) => {
+    const savedUnder = idRef.current === null ? null : latestRef.current.category?.id;
+    const unused = createdCategoriesRef.current.filter((c) => c.id !== savedUnder);
+    createdCategoriesRef.current = [];
+    if (unused.length === 0) return;
+
+    const deletions = unused.map((category) =>
+      apiFetch(`/categories/${category.id}/`, { method: "DELETE", keepalive }).catch(() => {
+        /* the category stays; nothing else in the editor depends on this */
+      })
+    );
+    // The sidebar outlives the editor and lists these, so it has to hear
+    // about it. `keepalive` means the document itself is going away, and
+    // there's nobody left to tell.
+    if (!keepalive) Promise.all(deletions).then(() => emitNotesChanged());
   }, []);
+
+  useEffect(() => {
+    // Unmounting is where every way of leaving the editor meets: the close
+    // button (which pushes to /dashboard), a sidebar link, browser back.
+    // Closing the tab is the one that doesn't unmount, hence `pagehide` —
+    // and there the request needs `keepalive` to outlive the document.
+    function handlePageHide() {
+      discardUnusedCategories(true);
+    }
+
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      discardUnusedCategories();
+    };
+  }, [discardUnusedCategories]);
 
   async function handleClose() {
     await save();
@@ -132,6 +188,11 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
         body: JSON.stringify({ name }),
       });
       setCategories((prev) => [...prev, created]);
+      // A category created for a note that doesn't exist yet is provisional:
+      // if that note never gets saved, the category leaves with it. One
+      // created while editing a saved note is the user's to keep — the note
+      // is filed under it the moment it's made.
+      if (idRef.current === null) createdCategoriesRef.current.push(created);
       // Routes through handleCategoryChange (rather than setCategory) so the
       // latestRef/dirtyRef sync happens and the note is saved under the new
       // category — the effect that mirrors state into latestRef hasn't
