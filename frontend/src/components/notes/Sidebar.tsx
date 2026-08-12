@@ -18,6 +18,7 @@ import {
   MenuIcon,
   NotesIcon,
 } from "@/components/ui/icons";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn } from "@/lib/cn";
 
 export function Sidebar() {
@@ -32,6 +33,7 @@ export function Sidebar() {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
   // Phones only: the sidebar is 256px of a ~390px screen, so it slides in over
   // the notes instead of standing beside them. From md up it's always open and
   // this state goes unused — the button that sets it is hidden there.
@@ -83,6 +85,10 @@ export function Sidebar() {
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // The delete-category confirmation opens from inside the drawer and
+      // handles Escape on `document`, which reaches window afterwards. Escape
+      // there means "back out of the dialog", not "and take the drawer too".
+      if (e.defaultPrevented) return;
       setMenu({ open: false, route: "" });
       menuButtonRef.current?.focus();
     }
@@ -146,8 +152,6 @@ export function Sidebar() {
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm("Delete this category?")) return;
-
     setBusy(true);
     try {
       await apiFetch(`/categories/${id}/`, { method: "DELETE" });
@@ -157,6 +161,10 @@ export function Sidebar() {
       showErrorToast(apiErrorMessage(err, "Couldn't delete that category."));
     } finally {
       setBusy(false);
+      // Closed either way, as the note dialog is: on success the row is gone,
+      // and on failure the toast carries the message — a dialog left up over
+      // it would only trap focus behind something already read.
+      setConfirmingId(null);
     }
   }
 
@@ -179,6 +187,10 @@ export function Sidebar() {
       setBusy(false);
     }
   }
+
+  // Read back out of the freshly-fetched list rather than held in state, so a
+  // rename that lands while the dialog is up can't leave it naming the old one.
+  const confirming = counts?.categories.find((c) => c.id === confirmingId) ?? null;
 
   return (
     <>
@@ -312,7 +324,7 @@ export function Sidebar() {
                     type="button"
                     aria-label={`Delete ${category.name}`}
                     disabled={busy}
-                    onClick={() => handleDelete(category.id)}
+                    onClick={() => setConfirmingId(category.id)}
                     className="shrink-0 cursor-pointer text-ink/40 opacity-0 hover:text-ink group-hover:opacity-100 disabled:opacity-0 [@media(hover:none)]:opacity-100"
                   >
                     <TrashIcon className="size-3.5" />
@@ -388,6 +400,25 @@ export function Sidebar() {
             Log out
           </button>
         </div>
+
+        {confirming && (
+          <ConfirmDialog
+            open
+            title="Delete this category?"
+            description={
+              <>
+                <span className="font-semibold text-ink">“{confirming.name}”</span> will be gone
+                for good. Notes still in it have to be moved out first; any of its notes already
+                in the archive are deleted with it.
+              </>
+            }
+            confirmLabel="Delete category"
+            busyLabel="Deleting…"
+            busy={busy}
+            onConfirm={() => handleDelete(confirming.id)}
+            onCancel={() => setConfirmingId(null)}
+          />
+        )}
       </aside>
     </>
   );

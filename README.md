@@ -179,8 +179,29 @@ sets `DATABASE_URL`; `config/settings/base.py` accepts either that or the
 every concurrent Function instance holds its own connection, so pooling
 belongs to the provider's pooler, not to Django.
 
-Migrations don't run during the build — a preview deploy would otherwise
-migrate whatever database it happens to point at. Run them yourself:
+### Migrations
+
+`backend/build.py` runs `migrate` during the build, wired up by
+`[tool.vercel.scripts]` in `backend/pyproject.toml`. Vercel runs it after
+installing dependencies and before the deployment serves traffic — the only
+window where the schema can move ahead of the code that needs it. A failed
+migration fails the build rather than shipping.
+
+**Production deployments only.** Preview deployments read whichever database
+their environment names, which in a single-database setup is the production
+one — so migrating from a preview would apply a branch's schema change to
+live data from a deploy nobody considers a release. Previews therefore run
+against whatever schema production last migrated, and a preview whose code
+needs a newer schema fails loudly. That's the intended outcome; promote the
+branch to get its migration applied.
+
+The script also **fails the build when `DATABASE_URL` is unset**, rather than
+letting the deployment go live. Without it, settings fall back to a localhost
+Postgres that does not exist inside a Function, and every request 500s with
+`connection to server at "127.0.0.1", port 5432 failed` — a symptom that names
+nothing about the actual cause.
+
+To run migrations by hand anyway (or `createsuperuser`):
 
 ```bash
 cd backend
@@ -190,10 +211,9 @@ DJANGO_SETTINGS_MODULE=config.settings.prod uv run python manage.py migrate
 ```
 
 `DJANGO_SETTINGS_MODULE` is explicit there because `VERCEL` isn't set on your
-machine — it's the one place you name the module by hand. `createsuperuser`
-works the same way.
+machine — it's the one place you name the module by hand.
 
-`collectstatic` *is* run for you, because `STATIC_ROOT` is set.
+`collectstatic` needs no script: Vercel runs it because `STATIC_ROOT` is set.
 
 ### Celery
 

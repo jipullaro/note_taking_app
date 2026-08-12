@@ -1,6 +1,6 @@
 import { requireAuth, redirectIfUnauthenticated } from "@/lib/auth";
 import { serverApiFetch } from "@/lib/api";
-import { NoteGrid } from "@/components/notes/NoteGrid";
+import { NoteSearch } from "@/components/notes/NoteSearch";
 import { Button } from "@/components/ui/Button";
 import { PlusIcon } from "@/components/ui/icons";
 import type { Note } from "@/types/note";
@@ -23,13 +23,16 @@ export default async function DashboardPage({
   }
 
   return (
-    <>
-      <div className="mb-8 flex justify-end">
+    // The category filter is applied by the API above; NoteSearch narrows that
+    // result further, in the browser, as the user types. "New Note" is handed
+    // to it so the button and the search field share one toolbar row.
+    <NoteSearch
+      notes={notes}
+      action={
         <Button href="/notes/new" icon={<PlusIcon className="size-4" />}>
           New Note
         </Button>
-      </div>
-      <NoteGrid notes={notes} />
-    </>
+      }
+    />
   );
 }

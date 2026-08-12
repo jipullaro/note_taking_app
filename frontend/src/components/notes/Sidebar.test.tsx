@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/api";
 import { emitNotesChanged } from "@/lib/events";
-import { resetNavigation, setPathname } from "@/test/next-navigation";
+import { resetNavigation, routerMock, setPathname, setSearchParams } from "@/test/next-navigation";
+import { captureToasts } from "@/test/toasts";
 
 import { Sidebar } from "./Sidebar";
 
@@ -127,6 +128,76 @@ describe("Sidebar", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("link", { name: /archive/i })).toHaveTextContent("4");
+    });
+  });
+
+  describe("deleting a category", () => {
+    const toasts = captureToasts();
+    const DELETE_PERSONAL = ["/categories/1/", { method: "DELETE" }];
+
+    /** Renders, waits for the categories to arrive, and raises the dialog. */
+    async function clickDelete() {
+      render(<Sidebar />);
+      await userEvent.click(await screen.findByRole("button", { name: "Delete Personal" }));
+    }
+
+    async function confirmDelete() {
+      await clickDelete();
+      await userEvent.click(screen.getByRole("button", { name: "Delete category" }));
+    }
+
+    it("asks in an in-app dialog rather than window.confirm", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm");
+
+      await clickDelete();
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      // Every row's trash button looks the same, so the dialog has to say
+      // which category it's about.
+      expect(dialog).toHaveTextContent("Personal");
+      // Nothing is deleted until it's answered.
+      expect(apiFetch).not.toHaveBeenCalledWith(...DELETE_PERSONAL);
+    });
+
+    it("deletes the category and refreshes when confirmed", async () => {
+      await confirmDelete();
+
+      expect(apiFetch).toHaveBeenCalledWith(...DELETE_PERSONAL);
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("sends no request when the confirm is declined", async () => {
+      await clickDelete();
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(apiFetch).not.toHaveBeenCalledWith(...DELETE_PERSONAL);
+    });
+
+    it("leaves the filter behind when the category being viewed is deleted", async () => {
+      setSearchParams("category=1");
+
+      await confirmDelete();
+
+      await waitFor(() => expect(routerMock.push).toHaveBeenCalledWith("/dashboard"));
+    });
+
+    it("reports a failed delete and closes the dialog", async () => {
+      render(<Sidebar />);
+      const trash = await screen.findByRole("button", { name: "Delete Personal" });
+      // Queued after the mount's counts fetch, so it's the DELETE that fails —
+      // as it does for a category that still has active notes in it.
+      vi.mocked(apiFetch).mockRejectedValueOnce(new Error("still has notes"));
+
+      await userEvent.click(trash);
+      await userEvent.click(screen.getByRole("button", { name: "Delete category" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].variant).toBe("error");
     });
   });
 });
