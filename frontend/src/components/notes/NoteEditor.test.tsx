@@ -140,41 +140,55 @@ describe("NoteEditor archiving", () => {
     stubApi([personal]);
   });
 
+  /** Clicks the trash button, which raises the in-app confirmation. */
+  async function openArchiveDialog() {
+    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+  }
+
   it("sends no request when the confirm is declined", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<NoteEditor initialNote={note} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+    await openArchiveDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockApiFetch).not.toHaveBeenCalledWith(`/notes/${note.id}/`, { method: "DELETE" });
     expect(routerMock.push).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
   });
 
   it("archives and returns to the dashboard when confirmed", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<NoteEditor initialNote={note} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+    await openArchiveDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Move to archive" }));
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(`/notes/${note.id}/`, { method: "DELETE" });
     });
     expect(routerMock.push).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("confirms in an in-app dialog naming the note, not window.confirm", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    render(<NoteEditor initialNote={note} />);
+
+    await openArchiveDialog();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toHaveTextContent(note.title);
     confirmSpy.mockRestore();
   });
 
   it("promises the archive rather than claiming the delete is permanent", async () => {
     // The old copy said "This can't be undone", which stopped being true the
     // moment DELETE started archiving.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<NoteEditor initialNote={note} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /archive note/i }));
+    await openArchiveDialog();
 
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("archive"));
-    expect(confirmSpy).not.toHaveBeenCalledWith(expect.stringContaining("can't be undone"));
-    confirmSpy.mockRestore();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/archive/i);
+    expect(dialog).not.toHaveTextContent(/can't be undone/i);
   });
 });
 

@@ -7,6 +7,7 @@ import { emitNotesChanged } from "@/lib/events";
 import { showErrorToast } from "@/lib/toast";
 import { colorForCategory } from "@/lib/categories";
 import { formatLastEdited } from "@/lib/date";
+import { ArchiveNoteDialog } from "./ArchiveNoteDialog";
 import { CategoryDropdown } from "./CategoryDropdown";
 import { NoteBodyEditor } from "./NoteBodyEditor";
 import { CloseIcon, TrashIcon } from "@/components/ui/icons";
@@ -33,6 +34,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
   const [updatedAt, setUpdatedAt] = useState<string | undefined>(initialNote?.updated_at);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   // Only used by the no-categories-at-all form below; the dropdown keeps its
   // own input state once there's at least one category to hang it off.
   const [firstCategoryName, setFirstCategoryName] = useState("");
@@ -146,15 +148,6 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
 
   async function handleDelete() {
     if (id === null) return;
-    // Deleting archives now, so "this can't be undone" would be a lie — the
-    // note is recoverable from the archive until the purge takes it.
-    if (
-      !window.confirm(
-        "Move this note to the archive? It'll be deleted for good a day from now."
-      )
-    ) {
-      return;
-    }
 
     setDeleting(true);
     try {
@@ -164,6 +157,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
       router.refresh();
     } finally {
       setDeleting(false);
+      setConfirming(false);
     }
   }
 
@@ -232,7 +226,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
           {id !== null && (
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={() => setConfirming(true)}
               disabled={deleting}
               aria-label="Archive note"
               className="cursor-pointer text-ink/60 hover:text-ink disabled:opacity-50"
@@ -280,6 +274,14 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
           className="flex flex-1 flex-col text-ink"
         />
       </div>
+
+      <ArchiveNoteDialog
+        open={confirming}
+        noteTitle={title}
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }
