@@ -54,6 +54,32 @@ services:
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     ports:
       - "8000:8000"
+    # On this service rather than on the x-backend anchor above, even though
+    # the anchor is where the shared configuration goes. worker and beat pull
+    # that anchor in too, and neither serves HTTP — they'd fail this check
+    # forever while doing their job perfectly well.
+    healthcheck:
+      # There is no curl in python:3.12-slim, but the interpreter that's
+      # already here can make the request. urlopen raises on the 503 the
+      # endpoint returns when the database is unreachable, which is exactly
+      # the non-zero exit compose is looking for.
+      #
+      # No URL prefix: URL_PREFIX is empty outside production, because here
+      # Django has its own port and owns "/" (see config/settings/base.py).
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # `command` runs migrations before the server binds, so the first
+      # probes of a cold stack land before anything is listening. Failures
+      # inside start_period don't count against retries.
+      start_period: 30s
 
   worker:
     <<: *backend
@@ -75,8 +101,29 @@ services:
     ports:
       - "3000:3000"
     env_file: .env
+    healthcheck:
+      # node:22-alpine has no curl either, and node 22 has fetch built in.
+      # `r.ok` is the whole point: a reachable server answering 503 is a
+      # failure, and without this it would still exit 0 as a completed fetch.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      # Roomier than the backend's: this runs `next dev`, which compiles the
+      # route on the first request that reaches it.
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     depends_on:
-      - backend
+      # Was a bare list, which only waits for the container to be created —
+      # so the frontend used to come up against a backend still running
+      # migrations. Now that the backend reports readiness, wait for it.
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:

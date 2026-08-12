@@ -152,6 +152,41 @@ production settings are the same string.
 Routing into a service is final — if nothing inside matches, you get that
 service's 404, not a fallback to the other service.
 
+### Health checks
+
+Each service answers for itself:
+
+| Service | Public path | Checks |
+| --- | --- | --- |
+| frontend | `/api/health` | That the Next.js server is answering. |
+| backend | `/backend/api/health/` | The above, plus a `SELECT 1` against the database. |
+
+The backend's is a **readiness** check, not just a liveness one: a process
+that answers at all has already proved it's alive, so the useful question is
+whether it can serve, and the answer is no without a database. It returns
+`503` with `{"status": "unhealthy"}` when the query fails, and the driver's
+error goes to the log rather than into the response — the endpoint is public
+and unauthenticated, and that message can carry the connection string.
+
+The Celery broker is deliberately **not** checked. Nothing this service
+serves needs it; it's reached only when the purge endpoint enqueues a task,
+so folding it in would pull the whole API out of rotation over a dependency
+that ordinary requests never touch.
+
+The frontend's check is deliberately shallow — it does not call Django. They
+are separate services with separate probes, and a frontend that called itself
+unhealthy whenever the backend was down would turn one outage into two.
+
+Both are exempt from caching (`no-store`). A cached `200` outlives the health
+it reported, which is the one failure a health check must not have.
+
+> `vercel.json` has no health-check field — there is nothing in the schema to
+> point at these, and a `services` entry takes no `healthCheckPath`. They're
+> for uptime monitors, the load balancer in another deployment target, and
+> `docker compose`, which uses them to gate startup: the frontend container
+> waits for `service_healthy` on the backend rather than racing its
+> migrations.
+
 ### Environment variables
 
 | Env var | Required | Value |
