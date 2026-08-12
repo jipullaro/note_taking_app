@@ -2,7 +2,10 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+// Attributes of HTMLElement rather than HTMLButtonElement: this renders as
+// either a <button> or an <a>, and an event handler declared over the base
+// element is accepted by both, where one written for the button is not.
+interface ButtonProps extends ButtonHTMLAttributes<HTMLElement> {
   icon?: ReactNode;
   /** "outline" is the pill button (e.g. "+ New Note"); "solid" is a filled
    * full-width button (e.g. auth screens' "Login" / "Sign Up"). */
@@ -27,8 +30,14 @@ export function Button({
   );
 
   if (href) {
+    // `type` and `disabled` mean nothing on an anchor; everything else a
+    // caller passes (title, aria-*, onClick) applies to both and would
+    // otherwise be silently dropped on this branch.
+    const { type, disabled, ...linkProps } = props;
+    void type, disabled;
+
     return (
-      <Link href={href} className={classes}>
+      <Link href={href} className={classes} {...linkProps}>
         {icon}
         {children}
       </Link>
