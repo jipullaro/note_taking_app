@@ -42,7 +42,12 @@ export function ArchivedNoteCard({ note }: { note: Note }) {
       className="flex flex-col rounded-2xl border-2 p-5 opacity-80 shadow-sm"
       style={{ backgroundColor: color.fill, borderColor: color.border }}
     >
-      <NoteCardBody note={note} timestamp={note.archived_at ?? note.updated_at} />
+      {/* flex-1 so the Restore button sits on the card's bottom edge rather
+          than floating mid-card: the grid's equal-height rows leave short
+          notes with slack under the body. */}
+      <div className="flex flex-1 flex-col">
+        <NoteCardBody note={note} timestamp={note.archived_at ?? note.updated_at} />
+      </div>
       <div className="mt-4 flex justify-end">
         <button
           type="button"

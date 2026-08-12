@@ -134,7 +134,11 @@ export function Sidebar() {
   const confirming = counts?.categories.find((c) => c.id === confirmingId) ?? null;
 
   return (
-    <aside className="flex min-h-screen w-64 shrink-0 flex-col justify-between py-10 pr-4 pl-10">
+    // sticky + h-screen, not min-h-screen: the page is one scroll container, so
+    // a sidebar as tall as the note grid scrolled away with it and put Archive
+    // and Log out below the fold. Pinned to the viewport instead, with its own
+    // overflow for the case where the category list outgrows the screen.
+    <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col justify-between overflow-y-auto py-10 pr-4 pl-10">
       <div>
         {/* Styled as a peer of the category rows and the Archive link below,
             not as a bold heading over the list: as a heading it read like a
