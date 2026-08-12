@@ -8,7 +8,8 @@ export function ArchiveGrid({ notes }: { notes: Note[] }) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+    // auto-rows-fr keeps every card the same height, as on the dashboard.
+    <div className="grid auto-rows-fr grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
       {notes.map((note) => (
         <ArchivedNoteCard key={note.id} note={note} />
       ))}

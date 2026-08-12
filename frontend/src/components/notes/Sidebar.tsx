@@ -233,8 +233,15 @@ export function Sidebar() {
           // slide-out has finished.
           "fixed inset-y-0 left-0 overflow-y-auto transition-[transform,visibility] duration-200 motion-reduce:transition-none",
           menuOpen ? "visible translate-x-0 shadow-xl" : "invisible -translate-x-full",
-          // From md up: back in the flow, always open, nothing to slide.
-          "md:visible md:static md:min-h-screen md:translate-x-0 md:overflow-visible md:shadow-none"
+          // From md up: back in the flow, always open, nothing to slide —
+          // but sticky rather than static, and h-screen rather than
+          // min-h-screen. As a static column it grew to match the note grid
+          // and scrolled away with the page, putting Archive and Log out
+          // below the fold. Pinned to the viewport it keeps the base
+          // overflow-y-auto, for the day a category list outgrows the screen.
+          // inset-auto undoes the drawer's inset-y-0, which would otherwise
+          // pin bottom as well as top.
+          "md:visible md:sticky md:inset-auto md:top-0 md:h-screen md:translate-x-0 md:shadow-none"
         )}
       >
         <div>
