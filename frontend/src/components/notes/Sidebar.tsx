@@ -17,6 +17,7 @@ import {
   CloseIcon,
   NotesIcon,
 } from "@/components/ui/icons";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn } from "@/lib/cn";
 
 export function Sidebar() {
@@ -31,6 +32,7 @@ export function Sidebar() {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
 
@@ -91,8 +93,6 @@ export function Sidebar() {
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm("Delete this category?")) return;
-
     setBusy(true);
     try {
       await apiFetch(`/categories/${id}/`, { method: "DELETE" });
@@ -102,6 +102,10 @@ export function Sidebar() {
       showErrorToast(apiErrorMessage(err, "Couldn't delete that category."));
     } finally {
       setBusy(false);
+      // Closed either way, as the note dialog is: on success the row is gone,
+      // and on failure the toast carries the message — a dialog left up over
+      // it would only trap focus behind something already read.
+      setConfirmingId(null);
     }
   }
 
@@ -124,6 +128,10 @@ export function Sidebar() {
       setBusy(false);
     }
   }
+
+  // Read back out of the freshly-fetched list rather than held in state, so a
+  // rename that lands while the dialog is up can't leave it naming the old one.
+  const confirming = counts?.categories.find((c) => c.id === confirmingId) ?? null;
 
   return (
     <aside className="flex min-h-screen w-64 shrink-0 flex-col justify-between py-10 pr-4 pl-10">
@@ -202,7 +210,7 @@ export function Sidebar() {
                   type="button"
                   aria-label={`Delete ${category.name}`}
                   disabled={busy}
-                  onClick={() => handleDelete(category.id)}
+                  onClick={() => setConfirmingId(category.id)}
                   className="shrink-0 cursor-pointer text-ink/40 opacity-0 hover:text-ink group-hover:opacity-100 disabled:opacity-0"
                 >
                   <TrashIcon className="size-3.5" />
@@ -278,6 +286,25 @@ export function Sidebar() {
           Log out
         </button>
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          open
+          title="Delete this category?"
+          description={
+            <>
+              <span className="font-semibold text-ink">“{confirming.name}”</span> will be gone
+              for good. Notes still in it have to be moved out first; any of its notes already
+              in the archive are deleted with it.
+            </>
+          }
+          confirmLabel="Delete category"
+          busyLabel="Deleting…"
+          busy={busy}
+          onConfirm={() => handleDelete(confirming.id)}
+          onCancel={() => setConfirmingId(null)}
+        />
+      )}
     </aside>
   );
 }

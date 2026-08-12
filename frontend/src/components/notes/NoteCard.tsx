@@ -9,6 +9,7 @@ import { emitNotesChanged } from "@/lib/events";
 import { showToast, showErrorToast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
 import { TrashIcon } from "@/components/ui/icons";
+import { ArchiveNoteDialog } from "./ArchiveNoteDialog";
 import { NoteCardBody } from "./NoteCardBody";
 import type { Note } from "@/types/note";
 
@@ -16,18 +17,9 @@ export function NoteCard({ note }: { note: Note }) {
   const router = useRouter();
   const color = colorForCategory(note.category);
   const [deleting, setDeleting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   async function handleDelete() {
-    // Same promise the editor's trash button makes: DELETE archives, so the
-    // note is recoverable from /archive until the purge takes it.
-    if (
-      !window.confirm(
-        "Move this note to the archive? It'll be deleted for good a day from now."
-      )
-    ) {
-      return;
-    }
-
     setDeleting(true);
     try {
       await apiFetch(`/notes/${note.id}/`, { method: "DELETE" });
@@ -42,6 +34,10 @@ export function NoteCard({ note }: { note: Note }) {
       showErrorToast(apiErrorMessage(err, "Couldn't delete that note."));
     } finally {
       setDeleting(false);
+      // Closed either way: on success the card is on its way out, and on
+      // failure the toast carries the message, so keeping a dead dialog up
+      // would just trap focus behind an error the user has already read.
+      setConfirming(false);
     }
   }
 
@@ -62,7 +58,7 @@ export function NoteCard({ note }: { note: Note }) {
       <div className="mt-4 flex justify-end">
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => setConfirming(true)}
           disabled={deleting}
           aria-busy={deleting}
           // Icon-only, so this is the button's whole accessible name. Naming
@@ -89,6 +85,13 @@ export function NoteCard({ note }: { note: Note }) {
           <TrashIcon className="size-4" />
         </button>
       </div>
+      <ArchiveNoteDialog
+        open={confirming}
+        noteTitle={note.title}
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }

@@ -26,6 +26,16 @@ const note: Note = {
   archived_at: null,
 };
 
+/** Opens the confirmation, then answers it. */
+async function clickDelete() {
+  await userEvent.click(screen.getByRole("button", { name: /^delete/i }));
+}
+
+async function confirmArchive() {
+  await clickDelete();
+  await userEvent.click(screen.getByRole("button", { name: "Move to archive" }));
+}
+
 describe("NoteCard", () => {
   const toasts = captureToasts();
 
@@ -71,11 +81,22 @@ describe("NoteCard", () => {
     expect(button).toHaveFocus();
   });
 
-  it("deletes the note and refreshes when confirmed", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("asks for confirmation in an in-app dialog rather than window.confirm", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
     render(<NoteCard note={note} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await clickDelete();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+    // The grid can show many notes; the dialog has to say which one it means.
+    expect(screen.getByRole("dialog")).toHaveTextContent("Live note");
+  });
+
+  it("deletes the note and refreshes when confirmed", async () => {
+    render(<NoteCard note={note} />);
+
+    await confirmArchive();
 
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledWith("/notes/7/", { method: "DELETE" });
@@ -84,11 +105,12 @@ describe("NoteCard", () => {
   });
 
   it("sends no request when the confirm is declined", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<NoteCard note={note} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await clickDelete();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(apiFetch).not.toHaveBeenCalled();
     expect(routerMock.refresh).not.toHaveBeenCalled();
   });
@@ -96,21 +118,21 @@ describe("NoteCard", () => {
   it("promises the archive rather than claiming the delete is permanent", async () => {
     // DELETE archives, matching the editor's trash button — so the copy must
     // not tell the user the note is gone for good.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<NoteCard note={note} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await clickDelete();
 
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("archive"));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/archive/i);
+    expect(dialog).not.toHaveTextContent(/can't be undone/i);
   });
 
   it("does not open the note when the delete button is clicked", async () => {
     // The button sits outside the <a> precisely so this can't happen; assert
     // it so a later refactor to an overlay link doesn't reintroduce it.
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<NoteCard note={note} />);
 
-    const button = screen.getByRole("button", { name: /delete/i });
+    const button = screen.getByRole("button", { name: /^delete/i });
     expect(button.closest("a")).toBeNull();
 
     const navigated = vi.fn();
@@ -124,34 +146,32 @@ describe("NoteCard", () => {
   });
 
   it("announces the change so the sidebar counts can catch up", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const listener = vi.fn();
     window.addEventListener(NOTES_CHANGED_EVENT, listener);
 
     render(<NoteCard note={note} />);
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await confirmArchive();
 
     await waitFor(() => expect(listener).toHaveBeenCalled());
     window.removeEventListener(NOTES_CHANGED_EVENT, listener);
   });
 
-  it("reports a failed delete and re-enables the button", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("reports a failed delete, closes the dialog and re-enables the button", async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error("boom"));
 
     render(<NoteCard note={note} />);
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await confirmArchive();
 
     await waitFor(() => expect(toasts).toHaveLength(1));
     expect(toasts[0].variant).toBe("error");
-    expect(screen.getByRole("button", { name: /delete/i })).toBeEnabled();
+    // A dialog left up over the error would trap focus behind the message.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^delete/i })).toBeEnabled();
   });
 
   it("confirms the archive on success, since the card disappears", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<NoteCard note={note} />);
-    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+    await confirmArchive();
 
     await waitFor(() => expect(toasts).toHaveLength(1));
     expect(toasts[0]).toEqual({
