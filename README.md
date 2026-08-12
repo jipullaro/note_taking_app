@@ -43,19 +43,24 @@ Then open **http://localhost:3000**.
    that category's color.
 6. Click the note card → edit the title/body/category → close → changes are
    reflected on the dashboard, and the sidebar's per-category counts update.
-7. Click a category in the sidebar → the grid filters to just that
+7. Open a note, type a few words, and reload immediately — before the status
+   line settles back to "Last Edited". The words are still there, restored
+   from the local draft. Now set DevTools to offline and type again: the
+   status line says it couldn't save and is retrying, the text still survives
+   a reload, and going back online sends it without further prompting.
+8. Click a category in the sidebar → the grid filters to just that
    category; click **All Categories** to clear the filter.
-8. Try deleting a category that has notes in it (trash icon) → refused with
+9. Try deleting a category that has notes in it (trash icon) → refused with
    a message. Delete an empty one → it disappears.
-9. Open a note and click the trash icon → the confirm says it moves to the
+10. Open a note and click the trash icon → the confirm says it moves to the
     archive → accept → the note leaves the dashboard and the category count
     drops.
-10. Click **Archive** at the bottom of the sidebar → the note is there, dimmed,
+11. Click **Archive** at the bottom of the sidebar → the note is there, dimmed,
     dated by when it was archived, with no link into the editor. Click
     **Restore** → it disappears from the archive and the sidebar's archive
     count drops without a page navigation.
-11. Back on the dashboard, the restored note is in its category again.
-12. Click **Log out** in the sidebar → you're redirected to `/login`; visiting
+12. Back on the dashboard, the restored note is in its category again.
+13. Click **Log out** in the sidebar → you're redirected to `/login`; visiting
     `/dashboard` directly now redirects back to `/login`.
 
 ## Development
@@ -311,9 +316,53 @@ fully offline run.
   (`frontend/src/app/api/proxy/[...path]`) that attaches the token and
   transparently refreshes it once on a 401.
 - **Note editor autosave**: the Figma mockup has no explicit "Save" button
-  (only a close "X"), so the editor autosaves — debounced while typing,
-  immediate on category change or close — rather than requiring an
-  explicit save action.
+  (only a close "X"), so the editor autosaves rather than requiring an
+  explicit save action. That makes *when to send* a design problem in its
+  own right, and it's split in two:
+  - `frontend/src/lib/autosave.ts` decides when to call the API. It debounces
+    800ms while typing, but with a **5s ceiling** — a plain trailing debounce
+    only fires once the user pauses, so someone typing without a gap saves
+    nothing at all, and the unsaved window is unbounded. It keeps **one
+    request in flight at a time**: overlapping saves are how a brand-new note
+    gets `POST`ed twice (the id isn't known until the first `POST` replies)
+    and how an older body lands after a newer one, so edits made mid-request
+    are coalesced into a single follow-up instead of a second concurrent
+    save. Failures back off and retry (1s/3s/10s/30s) rather than
+    disappearing, and pending work is flushed when the page is hidden or the
+    editor is navigated away from — `keepalive`, since the page may be on its
+    way out. Note that leaving via a sidebar link doesn't unmount-then-idle
+    the way it might look: Next keeps client segments alive across
+    navigation, so the flush is what gets that edit sent.
+  - `frontend/src/lib/drafts.ts` mirrors the editor into `localStorage` on
+    every change. Autosaving always leaves a window where the screen is ahead
+    of the server — the debounce, a request in flight, a failed save waiting
+    on its backoff — and a synchronous local write can't fail the way a
+    request can. A draft is deleted the moment the same content lands on the
+    server, which gives its presence a meaning: it says "this was never
+    saved". That invariant is what lets the editor restore a draft on load
+    without having to work out which copy is newer. The restore runs in a
+    layout effect, before the browser paints — gating it on the `/categories/`
+    fetch (which only the draft's *category* actually needs) meant a reload
+    mid-edit showed the server's older copy first and swapped the draft in a
+    moment later, so the user watched their text go missing and come back.
+
+  The status line (`Saving… / Couldn't save — retrying… / Last Edited`) is
+  the whole substitute for the Save button the mockup doesn't have, so it
+  reports save state ahead of the timestamp — "Last Edited" describes the
+  copy on the server, which isn't what's on screen while a save is pending.
+
+  Three alternatives were weighed and rejected. An **explicit Save button**
+  is the cleanest mental model and has no races at all, but it's the one
+  thing the mockup rules out. **WebSockets** (Django Channels — the Redis
+  channel layer would be free, since Celery already needs a broker) would
+  replace N requests with one connection, and a **CRDT** (Yjs +
+  `@tiptap/extension-collaboration`, which the ProseMirror body would take
+  fairly cleanly) would give tiny deltas, offline editing and conflict-free
+  merges. Both only pay for themselves if the goal is multi-device or
+  collaborative editing; for a single-user note app they're infrastructure
+  without a customer, and the CRDT additionally makes the Ydoc canonical and
+  demotes the stored markdown to a derived projection. Worth revisiting if
+  live collaboration is ever on the table.
 - **Delete and logout affordances** (trash icon in the editor, "Log out" in
   the sidebar) aren't shown in the Figma exports but were added since
   they're required functionality.
@@ -321,4 +370,10 @@ fully offline run.
   `frontend/`). `next/navigation` has no implementation outside a Next request
   context, so client components under test mock it via `vi.mock("next/navigation")`
   — the stand-in and its helpers live in `frontend/src/test/next-navigation.ts`.
-  The manual smoke test above still covers what jsdom can't judge.
+  jsdom is also missing two things the editor needs, both stubbed in
+  `frontend/src/test/setup.ts`: the geometry APIs ProseMirror measures the
+  selection with (it runs no layout engine), and `localStorage`, which jsdom
+  30 no longer implements itself. The latter matters more than it looks —
+  `lib/drafts` treats a missing store as "no drafts available" rather than
+  crashing, so without the stub every draft test would pass while asserting
+  nothing. The manual smoke test above still covers what jsdom can't judge.
