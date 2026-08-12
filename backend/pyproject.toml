@@ -26,6 +26,11 @@ dev = [
 package = false
 
 # --- Vercel ---
+# Runs after dependencies are installed and before the deployment goes live.
+# See build.py: it applies migrations, and only on production deployments.
+[tool.vercel.scripts]
+build = "python build.py"
+
 # The web entrypoint is NOT declared here: this directory is a service
 # (`services.backend` in the repo-root vercel.json), and that service's
 # `entrypoint` names config.wsgi:application. One source of truth.
