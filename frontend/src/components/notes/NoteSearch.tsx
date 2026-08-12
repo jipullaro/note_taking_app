@@ -49,11 +49,12 @@ export function NoteSearch({ notes, action }: { notes: Note[]; action?: ReactNod
       {/* Search and the page action share a row; below ~14rem of room for the
           field, the action wraps under it rather than squeezing it. */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-        <div role="search" className="min-w-56 flex-1 sm:max-w-sm">
+        <div role="search" className="min-w-56 flex-1">
           <div className="relative">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink/40" />
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-ink/40" />
             <TextInput
               ref={inputRef}
+              shape="pill"
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -64,11 +65,11 @@ export function NoteSearch({ notes, action }: { notes: Note[]; action?: ReactNod
               // The field has no visible label; this is its whole accessible name.
               aria-label="Search notes"
               className={cn(
-                "py-2.5 pl-10",
+                "pl-11",
                 // Chrome draws its own clear "x" inside type=search, which would
                 // sit next to ours; hide it and keep the one we can label.
                 "[&::-webkit-search-cancel-button]:appearance-none",
-                searching && "pr-10"
+                searching && "pr-11"
               )}
             />
             {searching && (
@@ -77,7 +78,7 @@ export function NoteSearch({ notes, action }: { notes: Note[]; action?: ReactNod
                 onClick={clearSearch}
                 aria-label="Clear search"
                 title="Clear search"
-                className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer rounded p-1 text-ink/50 hover:bg-ink/5 hover:text-ink"
+                className="absolute top-1/2 right-3.5 -translate-y-1/2 cursor-pointer rounded-full p-1 text-ink/50 hover:bg-ink/5 hover:text-ink"
               >
                 <CloseIcon className="size-3.5" />
               </button>
