@@ -42,6 +42,24 @@ Range.prototype.getBoundingClientRect = () => EMPTY_RECT;
 Range.prototype.getClientRects = () => EMPTY_RECT_LIST;
 Element.prototype.getClientRects = () => EMPTY_RECT_LIST;
 
+/*
+ * Also absent from jsdom: matchMedia. The sidebar's mobile drawer queries the
+ * md breakpoint so it can close itself if the viewport grows past it. Nothing
+ * here has a viewport to grow, so a query that never matches and never fires a
+ * change event is the honest stand-in.
+ */
+window.matchMedia = (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
+
 // Same reason: ProseMirror maps click coordinates back to a document position
 // via elementFromPoint, which jsdom doesn't implement at all. Returning null
 // makes it fall back to placing the caret without hit-testing, which is all a

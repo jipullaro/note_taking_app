@@ -8,6 +8,14 @@ export function PlusIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function MenuIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" {...props}>
+      <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+    </svg>
+  );
+}
+
 export function ChevronDownIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...props}>
