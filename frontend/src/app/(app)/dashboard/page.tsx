@@ -23,15 +23,16 @@ export default async function DashboardPage({
   }
 
   return (
-    <>
-      <div className="mb-8 flex justify-end">
+    // The category filter is applied by the API above; NoteSearch narrows that
+    // result further, in the browser, as the user types. "New Note" is handed
+    // to it so the button and the search field share one toolbar row.
+    <NoteSearch
+      notes={notes}
+      action={
         <Button href="/notes/new" icon={<PlusIcon className="size-4" />}>
           New Note
         </Button>
-      </div>
-      {/* The category filter is applied by the API above; NoteSearch narrows
-          that result further, in the browser, as the user types. */}
-      <NoteSearch notes={notes} />
-    </>
+      }
+    />
   );
 }

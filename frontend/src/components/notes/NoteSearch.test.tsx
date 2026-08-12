@@ -116,6 +116,12 @@ describe("NoteSearch", () => {
     expect(screen.getByRole("heading", { name: "Standup" })).toBeInTheDocument();
   });
 
+  it("renders the page action alongside the field", () => {
+    render(<NoteSearch notes={notes} action={<button>New Note</button>} />);
+
+    expect(screen.getByRole("button", { name: "New Note" })).toBeInTheDocument();
+  });
+
   it("falls back to the plain empty state when there are no notes at all", () => {
     render(<NoteSearch notes={[]} />);
 

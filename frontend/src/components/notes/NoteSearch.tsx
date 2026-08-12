@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { filterNotes, normalizeQuery } from "@/lib/search";
 import { Button } from "@/components/ui/Button";
@@ -23,8 +23,12 @@ import type { Note } from "@/types/note";
  *
  * NoteGrid stays a plain presentational grid; this owns the filtering so the
  * archive's list can keep using its own grid unchanged.
+ *
+ * `action` is the toolbar's right-hand slot — the dashboard's "New Note"
+ * button. It's passed in rather than rendered here so the page keeps owning
+ * what that button is, while the two controls still share one row.
  */
-export function NoteSearch({ notes }: { notes: Note[] }) {
+export function NoteSearch({ notes, action }: { notes: Note[]; action?: ReactNode }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -42,40 +46,45 @@ export function NoteSearch({ notes }: { notes: Note[] }) {
 
   return (
     <>
-      <div role="search" className="mb-6">
-        <div className="relative max-w-sm">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink/40" />
-          <TextInput
-            ref={inputRef}
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") clearSearch();
-            }}
-            placeholder="Search notes"
-            // The field has no visible label; this is its whole accessible name.
-            aria-label="Search notes"
-            className={cn(
-              "py-2.5 pl-10",
-              // Chrome draws its own clear "x" inside type=search, which would
-              // sit next to ours; hide it and keep the one we can label.
-              "[&::-webkit-search-cancel-button]:appearance-none",
-              searching && "pr-10"
+      {/* Search and the page action share a row; below ~14rem of room for the
+          field, the action wraps under it rather than squeezing it. */}
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div role="search" className="min-w-56 flex-1 sm:max-w-sm">
+          <div className="relative">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink/40" />
+            <TextInput
+              ref={inputRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") clearSearch();
+              }}
+              placeholder="Search notes"
+              // The field has no visible label; this is its whole accessible name.
+              aria-label="Search notes"
+              className={cn(
+                "py-2.5 pl-10",
+                // Chrome draws its own clear "x" inside type=search, which would
+                // sit next to ours; hide it and keep the one we can label.
+                "[&::-webkit-search-cancel-button]:appearance-none",
+                searching && "pr-10"
+              )}
+            />
+            {searching && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label="Clear search"
+                title="Clear search"
+                className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer rounded p-1 text-ink/50 hover:bg-ink/5 hover:text-ink"
+              >
+                <CloseIcon className="size-3.5" />
+              </button>
             )}
-          />
-          {searching && (
-            <button
-              type="button"
-              onClick={clearSearch}
-              aria-label="Clear search"
-              title="Clear search"
-              className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer rounded p-1 text-ink/50 hover:bg-ink/5 hover:text-ink"
-            >
-              <CloseIcon className="size-3.5" />
-            </button>
-          )}
+          </div>
         </div>
+        {action}
       </div>
 
       {searching && matches.length === 0 ? (
