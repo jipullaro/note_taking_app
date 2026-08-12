@@ -246,7 +246,7 @@ export function NoteEditor({ initialNote }: { initialNote?: Note }) {
       </div>
 
       <div
-        className="flex flex-1 flex-col rounded-2xl border-2 p-8"
+        className="flex flex-1 flex-col rounded-2xl border-2 p-5 md:p-8"
         style={{ backgroundColor: color.fill, borderColor: color.border }}
       >
         <div className="mb-4 flex justify-end text-xs text-ink/70">

@@ -29,8 +29,17 @@ export default async function DashboardPage({
     <NoteSearch
       notes={notes}
       action={
-        <Button href="/notes/new" icon={<PlusIcon className="size-4" />}>
-          New Note
+        // Icon-only on a phone. The label and the search field's 14rem floor
+        // don't fit one row there, and letting the button wrap spends a whole
+        // row on it — a "+" beside the field reads better and costs nothing,
+        // since the label is still the link's accessible name and its tooltip.
+        <Button
+          href="/notes/new"
+          icon={<PlusIcon className="size-4" />}
+          title="New Note"
+          className="max-md:px-3"
+        >
+          <span className="max-md:sr-only">New Note</span>
         </Button>
       }
     />
