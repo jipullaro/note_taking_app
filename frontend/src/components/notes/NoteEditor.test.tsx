@@ -249,3 +249,103 @@ describe("NoteEditor body", () => {
     expect(saves.length).toBeLessThan(5); // one per character would be 5
   });
 });
+
+describe("NoteEditor abandoned categories", () => {
+  /** stubApi plus a category DELETE, which only this flow issues. */
+  function stubApiWithCategoryDelete(categories: Category[]) {
+    stubApi(categories);
+    const withoutDelete = mockApiFetch.getMockImplementation()!;
+    stubWith((path, init = {}) => {
+      if (path.startsWith("/categories/") && init.method === "DELETE") {
+        return Promise.resolve(undefined);
+      }
+      return withoutDelete(path, init) as Promise<unknown>;
+    });
+  }
+
+  /** Creates "Work" from the dropdown, which is open on `from`. */
+  async function createCategory(user: ReturnType<typeof userEvent.setup>, from: RegExp) {
+    await user.click(await screen.findByRole("button", { name: from }));
+    await user.click(screen.getByRole("button", { name: /new category/i }));
+    await user.type(screen.getByLabelText("New category name"), "Work{Enter}");
+    await screen.findByRole("button", { name: /work/i });
+  }
+
+  function categoryDeletes() {
+    return mockApiFetch.mock.calls.filter(
+      ([path, init]) => path.startsWith("/categories/") && init?.method === "DELETE"
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetNavigation();
+  });
+
+  it("doesn't create the note just because a category was picked for it", async () => {
+    // Otherwise the note below could never be "abandoned": an empty note
+    // would already be sitting on the dashboard, holding the category.
+    stubApiWithCategoryDelete([personal]);
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+
+    await createCategory(user, /personal/i);
+
+    expect(mockApiFetch).not.toHaveBeenCalledWith("/notes/", expect.anything());
+  });
+
+  it("deletes a category created for a note that's never saved", async () => {
+    stubApiWithCategoryDelete([personal]);
+    const user = userEvent.setup();
+    const { unmount } = render(<NoteEditor />);
+
+    await createCategory(user, /personal/i);
+    await user.click(screen.getByRole("button", { name: /close/i }));
+    unmount(); // leaving the editor, however it's left, unmounts it
+
+    await waitFor(() => expect(categoryDeletes()).toHaveLength(1));
+    expect(categoryDeletes()[0][0]).toBe(`/categories/${work.id}/`);
+  });
+
+  it("keeps the category once the note is actually saved under it", async () => {
+    stubApiWithCategoryDelete([personal]);
+    const user = userEvent.setup();
+    const { unmount } = render(<NoteEditor />);
+
+    await user.type(await screen.findByPlaceholderText("Note Title"), "Groceries");
+    await createCategory(user, /personal/i); // saves the note under "Work"
+    await waitFor(() =>
+      expect(mockApiFetch).toHaveBeenCalledWith("/notes/", expect.objectContaining({ method: "POST" }))
+    );
+    unmount();
+
+    expect(categoryDeletes()).toHaveLength(0);
+  });
+
+  it("leaves categories created while editing an existing note alone", async () => {
+    // That note is saved under the new category the moment it's created, so
+    // there's nothing provisional about it.
+    stubApiWithCategoryDelete([personal]);
+    const user = userEvent.setup();
+    const { unmount } = render(<NoteEditor initialNote={note} />);
+
+    await createCategory(user, /personal/i);
+    unmount();
+
+    expect(categoryDeletes()).toHaveLength(0);
+  });
+
+  it("touches nothing when no category was created", async () => {
+    stubApiWithCategoryDelete([personal, work]);
+    const user = userEvent.setup();
+    const { unmount } = render(<NoteEditor />);
+
+    // Switching to a pre-existing category must not mark it as this
+    // editor's to clean up.
+    await user.click(await screen.findByRole("button", { name: /personal/i }));
+    await user.click(screen.getByRole("button", { name: /work/i }));
+    unmount();
+
+    expect(categoryDeletes()).toHaveLength(0);
+  });
+});
