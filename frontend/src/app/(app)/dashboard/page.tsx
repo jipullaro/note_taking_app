@@ -1,6 +1,6 @@
 import { requireAuth, redirectIfUnauthenticated } from "@/lib/auth";
 import { serverApiFetch } from "@/lib/api";
-import { NoteGrid } from "@/components/notes/NoteGrid";
+import { NoteSearch } from "@/components/notes/NoteSearch";
 import { Button } from "@/components/ui/Button";
 import { PlusIcon } from "@/components/ui/icons";
 import type { Note } from "@/types/note";
@@ -29,7 +29,9 @@ export default async function DashboardPage({
           New Note
         </Button>
       </div>
-      <NoteGrid notes={notes} />
+      {/* The category filter is applied by the API above; NoteSearch narrows
+          that result further, in the browser, as the user types. */}
+      <NoteSearch notes={notes} />
     </>
   );
 }

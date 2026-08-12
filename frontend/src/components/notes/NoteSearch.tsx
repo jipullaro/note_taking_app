@@ -1,0 +1,90 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/cn";
+import { filterNotes, normalizeQuery } from "@/lib/search";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { TextInput } from "@/components/ui/TextInput";
+import { CloseIcon, SearchIcon } from "@/components/ui/icons";
+import { NoteGrid } from "./NoteGrid";
+import type { Note } from "@/types/note";
+
+/**
+ * The dashboard's note list, with a search field over it.
+ *
+ * The query is local component state rather than a URL param like
+ * `?category=`: the category filter is served by Django (the page refetches),
+ * while this one only re-renders notes that are already on the client, so
+ * routing on every keystroke would add a server round-trip to something
+ * instant. Keeping it in state also means the query survives the
+ * `router.refresh()` a card's delete triggers — the grid re-renders from the
+ * server, the search field doesn't lose what you typed.
+ *
+ * NoteGrid stays a plain presentational grid; this owns the filtering so the
+ * archive's list can keep using its own grid unchanged.
+ */
+export function NoteSearch({ notes }: { notes: Note[] }) {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Every keystroke re-parses the markdown of every note body, so memoize on
+  // the pair — typing past a match shouldn't redo work for an unchanged list.
+  const matches = useMemo(() => filterNotes(notes, query), [notes, query]);
+  const searching = normalizeQuery(query) !== "";
+
+  function clearSearch() {
+    setQuery("");
+    // The clear button unmounts the moment the query empties, which would
+    // drop focus onto <body>; put it back where the user was typing.
+    inputRef.current?.focus();
+  }
+
+  return (
+    <>
+      <div role="search" className="mb-6">
+        <div className="relative max-w-sm">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink/40" />
+          <TextInput
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") clearSearch();
+            }}
+            placeholder="Search notes"
+            // The field has no visible label; this is its whole accessible name.
+            aria-label="Search notes"
+            className={cn(
+              "py-2.5 pl-10",
+              // Chrome draws its own clear "x" inside type=search, which would
+              // sit next to ours; hide it and keep the one we can label.
+              "[&::-webkit-search-cancel-button]:appearance-none",
+              searching && "pr-10"
+            )}
+          />
+          {searching && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              aria-label="Clear search"
+              title="Clear search"
+              className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer rounded p-1 text-ink/50 hover:bg-ink/5 hover:text-ink"
+            >
+              <CloseIcon className="size-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {searching && matches.length === 0 ? (
+        <EmptyState message={`No notes match “${query.trim()}”.`}>
+          <Button onClick={clearSearch}>Clear search</Button>
+        </EmptyState>
+      ) : (
+        <NoteGrid notes={matches} />
+      )}
+    </>
+  );
+}
